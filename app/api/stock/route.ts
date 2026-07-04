@@ -3,7 +3,13 @@ import { askGemini, GeminiUnavailableError } from "@/lib/gemini";
 import { getQuote, getCompanyNews, type Quote, type NewsItem } from "@/lib/finnhub";
 import { getDailyCandles } from "@/lib/yahoo-candles";
 import { detectPatterns, type Candle, type DetectedPattern } from "@/lib/patterns";
-import { validateTicker, sanitizeUserText, GuardrailError, RESEARCH_NOT_ADVICE_RULE } from "@/lib/guardrails";
+import {
+  validateTicker,
+  validateRiskProfile,
+  sanitizeUserText,
+  GuardrailError,
+  RESEARCH_NOT_ADVICE_RULE,
+} from "@/lib/guardrails";
 
 interface StockRequestBody {
   symbol?: string;
@@ -78,7 +84,7 @@ export async function POST(request: Request) {
     throw err;
   }
 
-  const riskProfile = body.riskProfile?.trim() || "moderate";
+  const riskProfile = validateRiskProfile(body.riskProfile);
 
   let quote: Quote | null;
   let candles: Candle[];

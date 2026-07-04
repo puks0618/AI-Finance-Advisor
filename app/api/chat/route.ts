@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { chatWithGemini, GeminiUnavailableError, type ChatTurn } from "@/lib/gemini";
+import { chatWithGemini, GeminiUnavailableError } from "@/lib/gemini";
 import {
   validateMessage,
   redactSensitive,
+  sanitizeHistory,
   detectDistressSignals,
   GuardrailError,
   RESEARCH_NOT_ADVICE_RULE,
@@ -21,7 +22,7 @@ ${VULNERABLE_USER_CARE_RULE}
 `.trim();
 
 interface ChatRequestBody {
-  history?: ChatTurn[];
+  history?: unknown;
   message?: string;
 }
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
   }
 
   const { clean: cleanedMessage, hadPII } = redactSensitive(message);
-  const history = Array.isArray(body.history) ? body.history : [];
+  const history = sanitizeHistory(body.history);
 
   let systemInstruction = ADVISOR_SYSTEM_INSTRUCTION;
   if (hadPII) {

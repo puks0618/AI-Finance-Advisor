@@ -287,6 +287,31 @@ function StockPanel() {
           <div className="rounded-2xl bg-white p-4 text-sm leading-6 whitespace-pre-wrap text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200">
             {result.brief}
           </div>
+
+          {result.news.length > 0 && (
+            <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-zinc-900">
+              <h3 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                Recent headlines
+              </h3>
+              <ul className="flex flex-col gap-2">
+                {result.news.map((n, i) => (
+                  <li key={i} className="text-sm">
+                    <a
+                      href={n.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-zinc-800 underline decoration-zinc-300 hover:decoration-zinc-500 dark:text-zinc-200 dark:decoration-zinc-600"
+                    >
+                      {n.headline}
+                    </a>
+                    <span className="ml-1 text-xs text-zinc-400 dark:text-zinc-500">
+                      ({n.source})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </>

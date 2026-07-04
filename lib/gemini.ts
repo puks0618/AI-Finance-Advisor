@@ -45,6 +45,16 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+// 6.1 — a real violation here means the system instruction itself failed; that's a signal
+// worth seeing in server logs, not just silently patching over with the disclaimer.
+function finalizeResponse(text: string): string {
+  const { ok, cleaned } = assertNotDirectAdvice(text);
+  if (!ok) {
+    console.warn("assertNotDirectAdvice: model output violated the no-direct-advice rule");
+  }
+  return cleaned;
+}
+
 /** One-shot prompt, no conversation history. Used for stock-brief synthesis. */
 export async function askGemini(
   prompt: string,
@@ -59,7 +69,7 @@ export async function askGemini(
       config: { systemInstruction, thinkingConfig: { thinkingLevel } },
     })
   );
-  return assertNotDirectAdvice(response.text ?? "").cleaned;
+  return finalizeResponse(response.text ?? "");
 }
 
 export interface ChatTurn {
@@ -87,5 +97,5 @@ export async function chatWithGemini(
     history: priorTurns,
   });
   const response = await withRetry(() => chat.sendMessage({ message }));
-  return assertNotDirectAdvice(response.text ?? "").cleaned;
+  return finalizeResponse(response.text ?? "");
 }

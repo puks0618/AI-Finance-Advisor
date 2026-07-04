@@ -49,6 +49,16 @@ export function validateMessage(raw: string): string {
   return trimmed;
 }
 
+// The only values Mode 2 personalization ever needs. An allowlist closes off prompt injection
+// through this field entirely — no sanitizing/delimiting required, unlike free-text fields.
+const VALID_RISK_PROFILES = new Set(["conservative", "moderate", "aggressive"]);
+
+/** 6.2/6.3 — anything outside the known set silently falls back to "moderate", same as if absent. */
+export function validateRiskProfile(raw: unknown): string {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  return VALID_RISK_PROFILES.has(value) ? value : "moderate";
+}
+
 /**
  * 6.2 — neutralize characters that could let untrusted text (news headlines, company names,
  * user input) escape the delimited "untrusted data" block it gets embedded in.
@@ -61,9 +71,12 @@ export function sanitizeUserText(raw: string): string {
     .trim();
 }
 
+// One general digit-run pattern covers SSNs (dashed "123-45-6789" or bare "123456789") and
+// card/account numbers alike. Lower bound is 8, not the stricter 13-19 for card numbers, so
+// shorter bank account numbers get caught too — over-redacting an ordinary number costs
+// nothing, missing real PII does.
 const PII_PATTERNS: { pattern: RegExp; label: string }[] = [
-  { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, label: "SSN" },
-  { pattern: /\b(?:\d[ -]*?){13,19}\b/g, label: "card/account number" },
+  { pattern: /\b(?:\d[ -]*?){8,19}\b/g, label: "SSN/card/account number" },
 ];
 
 /** 6.7 — never echo back or persist SSNs, card numbers, or long account-number-shaped digit runs. */
@@ -77,6 +90,33 @@ export function redactSensitive(text: string): { clean: string; hadPII: boolean 
     }
   }
   return { clean, hadPII };
+}
+
+export interface SanitizedTurn {
+  role: "user" | "model";
+  text: string;
+}
+
+const MAX_HISTORY_TURNS = 40;
+
+/**
+ * 6.7 — a client resends the full conversation on every turn, so without this, PII redacted on
+ * turn 1 would flow to the model unredacted from turn 2 onward (redactSensitive only ever ran on
+ * the newest message). Also closes 6.3: caps total turns and per-turn length, and drops anything
+ * that isn't a well-shaped {role, text} pair so a caller can't inject fake "model" turns.
+ */
+export function sanitizeHistory(raw: unknown): SanitizedTurn[] {
+  if (!Array.isArray(raw)) return [];
+  const turns: SanitizedTurn[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const { role, text } = item as { role?: unknown; text?: unknown };
+    if (role !== "user" && role !== "model") continue;
+    if (typeof text !== "string" || !text.trim()) continue;
+    const capped = text.trim().slice(0, MAX_MESSAGE_LENGTH);
+    turns.push({ role, text: redactSensitive(capped).clean });
+  }
+  return turns.slice(-MAX_HISTORY_TURNS);
 }
 
 // Heuristic phrase screen only — a trigger for extra-care system instructions, not a clinical
@@ -106,7 +146,7 @@ const DIRECT_ADVICE_PATTERNS: RegExp[] = [
   /\byou should (buy|sell|short|invest)\b/i,
   /\bi recommend (buying|selling|shorting)\b/i,
   /\b(buy|sell|short) (this|it) now\b/i,
-  /\bguarantee(d)? (a |you a )?(return|profit|gain)\b/i,
+  /\bguarantee(d)? (a |you a )?(returns?|profits?|gains?)\b/i,
   /\bthis (stock|it) will (definitely|certainly)\b/i,
 ];
 
