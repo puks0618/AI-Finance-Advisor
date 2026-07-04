@@ -2,8 +2,10 @@ import { GoogleGenAI, ApiError, ThinkingLevel, type Content } from "@google/gena
 import { assertNotDirectAdvice } from "./guardrails";
 
 // One constant, one place to change if Google's free-tier lineup shifts.
-// Fallback order documented in IMPLEMENTATION_PLAN.md: gemini-3-flash -> gemini-2.5-flash -> gemini-3.1-flash-lite.
-export const MODEL_NAME = "gemini-3-flash";
+// The plan's original "gemini-3-flash" doesn't exist as a model ID (verified against
+// GET /v1beta/models) — only "gemini-3-flash-preview" and this, the newer stable release, do.
+// Fallback order: gemini-3.5-flash -> gemini-2.5-flash -> gemini-3.1-flash-lite.
+export const MODEL_NAME = "gemini-3.5-flash";
 
 export class GeminiUnavailableError extends Error {}
 
