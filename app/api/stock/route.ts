@@ -3,6 +3,7 @@ import { askGemini, GeminiUnavailableError } from "@/lib/gemini";
 import { getQuote, getCompanyNews, type Quote, type NewsItem } from "@/lib/finnhub";
 import { getDailyCandles } from "@/lib/yahoo-candles";
 import { detectPatterns, type Candle, type DetectedPattern } from "@/lib/patterns";
+import { createClient } from "@/lib/supabase/server";
 import {
   validateTicker,
   validateRiskProfile,
@@ -10,6 +11,30 @@ import {
   GuardrailError,
   RESEARCH_NOT_ADVICE_RULE,
 } from "@/lib/guardrails";
+
+// Phase 3 — a logged-in user's own stored risk tolerance always wins over whatever the
+// client sent; the client-supplied value only matters for a signed-out visitor. A Supabase
+// hiccup here should never block stock research, so failures just fall back silently.
+async function resolveRiskProfile(clientSupplied: string | undefined): Promise<string> {
+  const fallback = validateRiskProfile(clientSupplied);
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return fallback;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("risk_tolerance")
+      .eq("id", user.id)
+      .maybeSingle();
+    return profile?.risk_tolerance ? validateRiskProfile(profile.risk_tolerance) : fallback;
+  } catch (err) {
+    console.error("resolveRiskProfile error:", err);
+    return fallback;
+  }
+}
 
 interface StockRequestBody {
   symbol?: string;
@@ -84,7 +109,7 @@ export async function POST(request: Request) {
     throw err;
   }
 
-  const riskProfile = validateRiskProfile(body.riskProfile);
+  const riskProfile = await resolveRiskProfile(body.riskProfile);
 
   let quote: Quote | null;
   let candles: Candle[];

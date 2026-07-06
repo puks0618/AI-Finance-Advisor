@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
+import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/client";
 
 interface Message {
   role: "user" | "model";
@@ -318,12 +321,55 @@ function StockPanel() {
   );
 }
 
+function AuthHeader() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+      setChecked(true);
+    });
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  async function handleLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  }
+
+  if (!checked) return null;
+
+  return (
+    <div className="mb-4 flex items-center justify-end gap-3 text-sm text-zinc-500 dark:text-zinc-400">
+      {user ? (
+        <>
+          <span>{user.email}</span>
+          <button onClick={handleLogout} className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
+            Log out
+          </button>
+        </>
+      ) : (
+        <Link href="/login" className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
+          Log in to save your profile
+        </Link>
+      )}
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const [mode, setMode] = useState<"advisor" | "stock">("advisor");
 
   return (
     <div className="flex flex-1 flex-col items-center bg-zinc-50 px-4 dark:bg-black">
       <div className="flex w-full max-w-2xl flex-1 flex-col py-8">
+        <AuthHeader />
         <ModeToggle mode={mode} setMode={setMode} />
         {DISCLAIMER}
         {mode === "advisor" ? <AdvisorPanel /> : <StockPanel />}

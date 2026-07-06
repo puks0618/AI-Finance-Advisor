@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { chatWithGemini, GeminiUnavailableError } from "@/lib/gemini";
+import { chatWithGemini, GeminiUnavailableError, type ChatTurn } from "@/lib/gemini";
+import { extractProfile } from "@/lib/profile-extraction";
+import { createClient } from "@/lib/supabase/server";
 import {
   validateMessage,
   redactSensitive,
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
 
   try {
     const reply = await chatWithGemini(history, cleanedMessage, systemInstruction);
+    await persistTurnAndExtractProfile(history, cleanedMessage, reply);
     return NextResponse.json({ reply });
   } catch (err) {
     if (err instanceof GeminiUnavailableError) {
@@ -71,5 +74,36 @@ export async function POST(request: Request) {
       { error: "Something went wrong on our end. Please try again." },
       { status: 500 }
     );
+  }
+}
+
+// Persistence and profile extraction are a nice-to-have side effect of an authenticated
+// conversation, not something the user is waiting on — a Supabase hiccup here must never
+// break the reply that already generated successfully, so failures are logged, not thrown.
+async function persistTurnAndExtractProfile(history: ChatTurn[], message: string, reply: string) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    await supabase.from("conversations").insert([
+      { user_id: user.id, role: "user", text: message },
+      { user_id: user.id, role: "model", text: reply },
+    ]);
+
+    const conversationText = [...history, { role: "user", text: message }, { role: "model", text: reply }]
+      .map((turn) => `${turn.role}: ${turn.text}`)
+      .join("\n");
+    const extracted = await extractProfile(conversationText);
+
+    if (Object.keys(extracted).length > 0) {
+      await supabase
+        .from("profiles")
+        .upsert({ id: user.id, ...extracted, updated_at: new Date().toISOString() });
+    }
+  } catch (err) {
+    console.error("persistTurnAndExtractProfile error:", err);
   }
 }
