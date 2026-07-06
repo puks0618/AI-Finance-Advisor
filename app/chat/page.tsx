@@ -180,6 +180,7 @@ function StockPanel() {
   const [result, setResult] = useState<StockResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gate, setGate] = useState<"login" | "upgrade" | null>(null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -187,6 +188,7 @@ function StockPanel() {
     if (!trimmed || loading) return;
 
     setError(null);
+    setGate(null);
     setLoading(true);
 
     try {
@@ -197,6 +199,8 @@ function StockPanel() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 401) setGate("login");
+        if (res.status === 402) setGate("upgrade");
         throw new Error(data.error ?? "Something went wrong. Please try again.");
       }
       setResult(data);
@@ -229,14 +233,25 @@ function StockPanel() {
 
       {error && (
         <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {error}
+          <p>{error}</p>
+          {gate === "login" && (
+            <Link href="/login" className="mt-2 inline-block underline">
+              Log in
+            </Link>
+          )}
+          {gate === "upgrade" && (
+            <Link href="/pricing" className="mt-2 inline-block underline">
+              Upgrade to Pro
+            </Link>
+          )}
         </div>
       )}
 
       {!result && !error && !loading && (
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Enter a ticker to get a price snapshot, detected candlestick patterns, and a plain-English
-          research brief tailored to a moderate risk profile.
+          research brief tailored to a moderate risk profile. Requires an account; free accounts
+          get 5 requests per day.
         </p>
       )}
 
@@ -347,6 +362,9 @@ function AuthHeader() {
 
   return (
     <div className="mb-4 flex items-center justify-end gap-3 text-sm text-zinc-500 dark:text-zinc-400">
+      <Link href="/pricing" className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
+        Pricing
+      </Link>
       {user ? (
         <>
           <span>{user.email}</span>

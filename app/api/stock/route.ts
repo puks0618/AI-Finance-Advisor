@@ -11,6 +11,7 @@ import {
   GuardrailError,
   RESEARCH_NOT_ADVICE_RULE,
 } from "@/lib/guardrails";
+import { getSubscriptionStatus, isPro, countResearchRequestsToday, FREE_RESEARCH_DAILY_LIMIT } from "@/lib/subscription";
 
 // Phase 3 — a logged-in user's own stored risk tolerance always wins over whatever the
 // client sent; the client-supplied value only matters for a signed-out visitor. A Supabase
@@ -109,6 +110,38 @@ export async function POST(request: Request) {
     throw err;
   }
 
+  // Phase 4 — stock research requires an account so Pro status can be checked server-side
+  // (guardrail 6.9: gating must never trust a client-supplied value). Free accounts get a
+  // daily cap; Pro accounts are unlimited.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json(
+      {
+        error: `Log in to research stocks. Free accounts get ${FREE_RESEARCH_DAILY_LIMIT} requests per day.`,
+      },
+      { status: 401 }
+    );
+  }
+
+  const subscriptionStatus = await getSubscriptionStatus(supabase, user.id);
+  const userIsPro = isPro(subscriptionStatus);
+
+  if (!userIsPro) {
+    const usedToday = await countResearchRequestsToday(supabase, user.id);
+    if (usedToday >= FREE_RESEARCH_DAILY_LIMIT) {
+      return NextResponse.json(
+        {
+          error: `Free accounts get ${FREE_RESEARCH_DAILY_LIMIT} stock research requests per day. Upgrade to Pro for unlimited research.`,
+        },
+        { status: 402 }
+      );
+    }
+  }
+
   const riskProfile = await resolveRiskProfile(body.riskProfile);
 
   let quote: Quote | null;
@@ -141,6 +174,14 @@ export async function POST(request: Request) {
 
   try {
     const brief = await askGemini(prompt, STOCK_SYSTEM_INSTRUCTION);
+
+    if (!userIsPro) {
+      const { error: insertError } = await supabase
+        .from("research_requests")
+        .insert({ user_id: user.id, symbol });
+      if (insertError) console.error("research_requests insert error:", insertError);
+    }
+
     return NextResponse.json({
       symbol,
       quote,
