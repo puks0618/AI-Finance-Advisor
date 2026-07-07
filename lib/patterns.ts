@@ -155,3 +155,23 @@ export function summarizePatternBias(patterns: DetectedPattern[]): PatternBias {
   for (const p of patterns) bias[p.signal]++;
   return bias;
 }
+
+export interface MovingAveragePoint {
+  date: string;
+  value: number;
+}
+
+/**
+ * Simple moving average over closing prices — a backward-looking smoothing indicator, not a
+ * forecast. Only emits a point once `period` closes are available, and never extrapolates past
+ * the last real candle.
+ */
+export function computeMovingAverage(candles: Candle[], period: number): MovingAveragePoint[] {
+  const points: MovingAveragePoint[] = [];
+  for (let i = period - 1; i < candles.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += candles[j].close;
+    points.push({ date: candles[i].date, value: sum / period });
+  }
+  return points;
+}

@@ -4,6 +4,8 @@ import { useState, useEffect, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import CandleChart from "./CandleChart";
+import DecisionTreeView from "./DecisionTreeView";
 
 interface Message {
   role: "user" | "model";
@@ -27,6 +29,20 @@ interface DetectedPattern {
   description: string;
 }
 
+interface Candle {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+interface MovingAveragePoint {
+  date: string;
+  value: number;
+}
+
 interface NewsItem {
   headline: string;
   summary: string;
@@ -47,16 +63,38 @@ interface Sentiment {
   bearish: number;
 }
 
+interface DecisionTreeOutcome {
+  sector: string;
+  pressure: "upward" | "downward" | "neutral";
+  reason: string;
+}
+
+interface DecisionTreeBranch {
+  label: string;
+  children?: DecisionTreeBranch[];
+  outcome?: DecisionTreeOutcome;
+}
+
+interface DecisionTree {
+  event: string;
+  summaryParagraph: string;
+  root: DecisionTreeBranch;
+  summary: DecisionTreeOutcome[];
+}
+
 interface StockResult {
   symbol: string;
   quote: Quote | null;
+  candles: Candle[];
   patterns: DetectedPattern[];
   patternBias: PatternBias;
+  movingAverage: MovingAveragePoint[];
   news: NewsItem[];
   brief: string;
   sentiment: Sentiment | null;
   upsideScenario: string | null;
   downsideScenario: string | null;
+  decisionTree: DecisionTree | null;
   dataDelayed: boolean;
 }
 
@@ -366,6 +404,21 @@ function StockPanel() {
             )}
           </div>
 
+          {result.candles.length > 0 && (
+            <div className="glass-card p-4">
+              <CandleChart
+                candles={result.candles}
+                patterns={result.patterns}
+                movingAverage={result.movingAverage}
+              />
+              <p className="mt-3 text-xs text-[var(--text-muted)]">
+                Markers show detected patterns; the cyan line is a 10-day moving average of real
+                closes — a smoothing indicator, not a forecast. Nothing on this chart extends past
+                today.
+              </p>
+            </div>
+          )}
+
           <div className="glass-card p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-medium text-[var(--text-secondary)]">Detected patterns</h3>
@@ -449,6 +502,8 @@ function StockPanel() {
               )}
             </div>
           )}
+
+          {result.decisionTree && <DecisionTreeView tree={result.decisionTree} />}
 
           {result.news.length > 0 && (
             <div className="glass-card p-4">

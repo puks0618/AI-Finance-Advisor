@@ -6,6 +6,7 @@ import { getDailyCandles } from "@/lib/yahoo-candles";
 import {
   detectPatterns,
   summarizePatternBias,
+  computeMovingAverage,
   type Candle,
   type DetectedPattern,
   type PatternBias,
@@ -94,11 +95,37 @@ Return strict JSON, nothing else, no markdown fences:
   "sentiment": {"bullish": number, "neutral": number, "bearish": number} (your read of the news
     headlines' tone, as integer percentages that sum to 100),
   "upsideScenario": string (1-2 sentences: a plausible scenario in which this stock performs well),
-  "downsideScenario": string (1-2 sentences: a plausible scenario in which this stock performs poorly)
+  "downsideScenario": string (1-2 sentences: a plausible scenario in which this stock performs poorly),
+  "decisionTree": {
+    "event": string (the triggering event or context, in one clause),
+    "summaryParagraph": string (2-4 sentences reasoning about whether this plausibly increases or
+      decreases demand or supply for this stock's sector, and why),
+    "root": {
+      "label": string (the key branching question or condition, e.g. "Is an alternative supply
+        route available?"),
+      "children": [
+        {
+          "label": string (a specific branch/answer, e.g. "No alternative available"),
+          "children": [ /* optionally one more level of branching, same shape */ ],
+          "outcome": { "sector": string, "pressure": "upward" | "downward" | "neutral",
+            "reason": string (one sentence, grounded in supply/demand economics) }
+        }
+        /* 2-3 branches; every leaf node must have "outcome", every non-leaf node must have
+           "children" instead — never both, never neither */
+      ]
+    }
+  } | null (build this from the headlines above OR well-known current macro/sector context
+    relevant to this ticker — general economic reasoning is fine, inventing a specific news event
+    that isn't real is not; if nothing supports a clear causal chain for this ticker, return null
+    rather than forcing one; keep the tree to at most 3 levels total and at most 3 branches per
+    level)
 }
 
 None of these fields may contain a buy/sell/hold recommendation, a price target, or any instruction
-telling the reader what to do — describe possibilities and context only, never a directive.
+telling the reader what to do — describe possibilities and context only, never a directive. The
+decision tree especially must use hedged, historical-tendency language ("has tended to," "could
+plausibly") for every label, reason, and the summary paragraph — never state a pressure as a
+guaranteed fact.
 `.trim();
 }
 
@@ -109,15 +136,35 @@ and recent headlines). Explain the patterns you're given; never second-guess the
 
 ${RESEARCH_NOT_ADVICE_RULE}
 
-This applies to every field you return, including the upside/downside scenarios: describe what
-could happen and why, but never tell the reader whether to buy, sell, or hold.
+This applies to every field you return, including the upside/downside scenarios and the decision
+tree: describe what could happen and why, but never tell the reader whether to buy, sell, or hold.
 `.trim();
+
+interface DecisionTreeOutcome {
+  sector: string;
+  pressure: "upward" | "downward" | "neutral";
+  reason: string;
+}
+
+interface DecisionTreeBranch {
+  label: string;
+  children?: DecisionTreeBranch[];
+  outcome?: DecisionTreeOutcome;
+}
+
+interface DecisionTree {
+  event: string;
+  summaryParagraph: string;
+  root: DecisionTreeBranch;
+  summary: DecisionTreeOutcome[];
+}
 
 interface StockAnalysis {
   brief: string;
   sentiment: { bullish: number; neutral: number; bearish: number } | null;
   upsideScenario: string | null;
   downsideScenario: string | null;
+  decisionTree: DecisionTree | null;
 }
 
 // 6.1 — applied per-field, after JSON parsing, never to the raw envelope (appending a violation
@@ -128,6 +175,77 @@ function finalizeField(text: string): string {
     console.warn("assertNotDirectAdvice: stock analysis field violated the no-direct-advice rule");
   }
   return cleaned;
+}
+
+// Bounds are enforced both in the prompt instructions and defensively here — a model that ignores
+// the instructions can't blow up the response payload or the recursive render tree.
+const MAX_TREE_DEPTH = 3;
+const MAX_CHILDREN = 3;
+const MAX_SUMMARY_ROWS = 8;
+const VALID_PRESSURE = new Set(["upward", "downward", "neutral"]);
+
+function sanitizeOutcome(raw: unknown): DecisionTreeOutcome | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { sector, pressure, reason } = raw as Record<string, unknown>;
+  if (typeof sector !== "string" || !sector.trim() || typeof reason !== "string" || !reason.trim()) {
+    return null;
+  }
+  return {
+    sector: sector.trim(),
+    pressure: VALID_PRESSURE.has(pressure as string) ? (pressure as DecisionTreeOutcome["pressure"]) : "neutral",
+    reason: finalizeField(reason),
+  };
+}
+
+// Drops anything structurally invalid rather than throwing — one malformed branch shouldn't sink
+// the whole tree. depth starts at 1 (the root) so MAX_TREE_DEPTH counts total levels, not children.
+function sanitizeBranch(raw: unknown, depth: number): DecisionTreeBranch | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { label, children, outcome } = raw as Record<string, unknown>;
+  if (typeof label !== "string" || !label.trim()) return null;
+  const cleanLabel = finalizeField(label);
+
+  if (Array.isArray(children) && depth < MAX_TREE_DEPTH) {
+    const cleanChildren = children
+      .slice(0, MAX_CHILDREN)
+      .map((c) => sanitizeBranch(c, depth + 1))
+      .filter((c): c is DecisionTreeBranch => c !== null);
+    if (cleanChildren.length > 0) {
+      return { label: cleanLabel, children: cleanChildren };
+    }
+  }
+
+  const cleanOutcome = sanitizeOutcome(outcome);
+  if (cleanOutcome) {
+    return { label: cleanLabel, outcome: cleanOutcome };
+  }
+  return null;
+}
+
+function collectOutcomes(branch: DecisionTreeBranch, acc: DecisionTreeOutcome[] = []): DecisionTreeOutcome[] {
+  if (branch.outcome) acc.push(branch.outcome);
+  branch.children?.forEach((c) => collectOutcomes(c, acc));
+  return acc.slice(0, MAX_SUMMARY_ROWS);
+}
+
+// 6.12 — any structural problem degrades to no tree at all rather than a broken/partial one.
+function parseDecisionTree(raw: unknown): DecisionTree | null {
+  try {
+    if (!raw || typeof raw !== "object") return null;
+    const { event, summaryParagraph, root } = raw as Record<string, unknown>;
+    if (typeof event !== "string" || !event.trim()) return null;
+    if (typeof summaryParagraph !== "string" || !summaryParagraph.trim()) return null;
+    const cleanRoot = sanitizeBranch(root, 1);
+    if (!cleanRoot) return null;
+    return {
+      event: finalizeField(event),
+      summaryParagraph: finalizeField(summaryParagraph),
+      root: cleanRoot,
+      summary: collectOutcomes(cleanRoot),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseAnalysis(raw: string): StockAnalysis {
@@ -147,11 +265,18 @@ function parseAnalysis(raw: string): StockAnalysis {
       upsideScenario: typeof parsed.upsideScenario === "string" ? finalizeField(parsed.upsideScenario) : null,
       downsideScenario:
         typeof parsed.downsideScenario === "string" ? finalizeField(parsed.downsideScenario) : null,
+      decisionTree: parseDecisionTree(parsed.decisionTree),
     };
   } catch {
     // The model didn't return valid JSON — degrade to showing the raw text as the brief rather
     // than failing the whole request; the structured extras just won't be present.
-    return { brief: finalizeField(raw), sentiment: null, upsideScenario: null, downsideScenario: null };
+    return {
+      brief: finalizeField(raw),
+      sentiment: null,
+      upsideScenario: null,
+      downsideScenario: null,
+      decisionTree: null,
+    };
   }
 }
 
@@ -234,6 +359,7 @@ export async function POST(request: Request) {
 
   const patterns = detectPatterns(candles);
   const patternBias: PatternBias = summarizePatternBias(patterns);
+  const movingAverage = computeMovingAverage(candles, 10);
   const prompt = buildPrompt(symbol, riskProfile, quote, candles, patterns, news);
 
   try {
@@ -250,13 +376,16 @@ export async function POST(request: Request) {
     return NextResponse.json({
       symbol,
       quote,
+      candles,
       patterns,
       patternBias,
+      movingAverage,
       news,
       brief: analysis.brief,
       sentiment: analysis.sentiment,
       upsideScenario: analysis.upsideScenario,
       downsideScenario: analysis.downsideScenario,
+      decisionTree: analysis.decisionTree,
       dataDelayed: true,
     });
   } catch (err) {

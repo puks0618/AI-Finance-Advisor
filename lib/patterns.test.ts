@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { detectPatterns, summarizePatternBias, type Candle, type DetectedPattern } from "./patterns";
+import {
+  detectPatterns,
+  summarizePatternBias,
+  computeMovingAverage,
+  type Candle,
+  type DetectedPattern,
+} from "./patterns";
 
 function candle(date: string, open: number, high: number, low: number, close: number): Candle {
   return { date, open, high, low, close, volume: 1000 };
@@ -140,5 +146,21 @@ describe("summarizePatternBias", () => {
 
   it("returns all zeros for no patterns", () => {
     expect(summarizePatternBias([])).toEqual({ bullish: 0, bearish: 0, neutral: 0 });
+  });
+});
+
+describe("computeMovingAverage", () => {
+  it("emits a point only once enough closes are available", () => {
+    const candles = [10, 20, 30, 40].map((close, i) => candle(`2026-06-0${i + 1}`, close, close, close, close));
+    const result = computeMovingAverage(candles, 3);
+    expect(result).toEqual([
+      { date: "2026-06-03", value: 20 },
+      { date: "2026-06-04", value: 30 },
+    ]);
+  });
+
+  it("returns nothing when there isn't enough data for even one point", () => {
+    const candles = [candle("2026-06-01", 10, 10, 10, 10)];
+    expect(computeMovingAverage(candles, 3)).toEqual([]);
   });
 });
