@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
 import CandleChart from "./CandleChart";
 import DecisionTreeView from "./DecisionTreeView";
+import { useSpeech } from "@/lib/useSpeech";
 
 interface Message {
   role: "user" | "model";
@@ -118,6 +119,11 @@ function renderInline(text: string): ReactNode[] {
   });
 }
 
+// SpeechSynthesis reads "**" literally as asterisks — strip the markdown bold markers before speaking.
+function stripForSpeech(text: string): string {
+  return text.replace(/\*\*/g, "");
+}
+
 function Disclaimer() {
   return (
     <div className="mb-4 flex items-start gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-xs leading-5 text-[var(--text-muted)]">
@@ -135,8 +141,8 @@ function ModeToggle({
   mode,
   setMode,
 }: {
-  mode: "advisor" | "stock";
-  setMode: (m: "advisor" | "stock") => void;
+  mode: "advisor" | "stock" | "watchlist";
+  setMode: (m: "advisor" | "stock" | "watchlist") => void;
 }) {
   return (
     <div className="mb-4 flex gap-2">
@@ -154,6 +160,13 @@ function ModeToggle({
       >
         📈 Stock Research
       </button>
+      <button
+        type="button"
+        onClick={() => setMode("watchlist")}
+        className={`px-4 py-2 text-sm font-medium ${mode === "watchlist" ? "btn-neon" : "btn-ghost"}`}
+      >
+        ⭐ Watchlist
+      </button>
     </div>
   );
 }
@@ -169,6 +182,9 @@ function AdvisorPanel() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [speakReplies, setSpeakReplies] = useState(false);
+  const { micSupported, speechSupported, listening, startListening, stopListening, speak, cancelSpeech } =
+    useSpeech();
 
   async function submitMessage(text: string) {
     const trimmed = text.trim();
@@ -191,6 +207,7 @@ function AdvisorPanel() {
         throw new Error(data.error ?? "Something went wrong. Please try again.");
       }
       setMessages((prev) => [...prev, { role: "model", text: data.reply }]);
+      if (speakReplies) speak(stripForSpeech(data.reply));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -201,6 +218,25 @@ function AdvisorPanel() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     await submitMessage(input);
+  }
+
+  function handleMicClick() {
+    if (listening) {
+      stopListening();
+      return;
+    }
+    if (speakReplies) cancelSpeech();
+    startListening((text, isFinal) => {
+      setInput(text);
+      if (isFinal) submitMessage(text);
+    });
+  }
+
+  function toggleSpeakReplies() {
+    setSpeakReplies((prev) => {
+      if (prev) cancelSpeech();
+      return !prev;
+    });
   }
 
   return (
@@ -255,17 +291,46 @@ function AdvisorPanel() {
       {error && <div className="glass-card glass-card-pink mt-4 px-4 py-3 text-sm text-neon-pink">{error}</div>}
 
       <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
+        {micSupported && (
+          <button
+            type="button"
+            onClick={handleMicClick}
+            title={listening ? "Stop listening" : "Speak your message"}
+            aria-pressed={listening}
+            className={`px-3 py-3 text-sm ${listening ? "btn-neon" : "btn-ghost"}`}
+            style={listening ? { background: "linear-gradient(135deg, var(--neon-pink), var(--neon-cyan))" } : undefined}
+          >
+            {listening ? "⏹" : "🎙"}
+          </button>
+        )}
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message…"
+          placeholder={listening ? "Listening…" : "Type a message…"}
           maxLength={4000}
           className="input-neon flex-1 px-4 py-3 text-sm"
         />
+        {speechSupported && (
+          <button
+            type="button"
+            onClick={toggleSpeakReplies}
+            title={speakReplies ? "Stop reading replies aloud" : "Read replies aloud"}
+            aria-pressed={speakReplies}
+            className={`px-3 py-3 text-sm ${speakReplies ? "btn-neon" : "btn-ghost"}`}
+          >
+            {speakReplies ? "🔊" : "🔇"}
+          </button>
+        )}
         <button type="submit" disabled={loading || !input.trim()} className="btn-neon px-6 py-3 text-sm">
           Send
         </button>
       </form>
+      {!micSupported && (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          Voice input isn&apos;t available in this browser — it works best in Chrome or Edge. Typing
+          still works great.
+        </p>
+      )}
     </>
   );
 }
@@ -531,6 +596,197 @@ function StockPanel() {
   );
 }
 
+interface WatchlistItem {
+  id: string;
+  symbol: string;
+  condition: string;
+  created_at: string;
+}
+
+interface AlertItem {
+  id: string;
+  symbol: string;
+  condition: string;
+  message: string;
+  triggered_at: string;
+}
+
+const CONDITION_OPTIONS: { value: string; label: string }[] = [
+  { value: "price_drop_5pct", label: "Price drops 5%+ in a day" },
+  { value: "price_rise_5pct", label: "Price rises 5%+ in a day" },
+  { value: "bullish_pattern", label: "A bullish candlestick pattern appears" },
+  { value: "bearish_pattern", label: "A bearish candlestick pattern appears" },
+];
+
+function conditionLabel(value: string): string {
+  return CONDITION_OPTIONS.find((c) => c.value === value)?.label ?? value;
+}
+
+function WatchlistPanel() {
+  const [items, setItems] = useState<WatchlistItem[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [symbol, setSymbol] = useState("");
+  const [condition, setCondition] = useState(CONDITION_OPTIONS[0].value);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [gate, setGate] = useState<"login" | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  function refresh() {
+    fetch("/api/watchlist")
+      .then((res) => {
+        if (res.status === 401) {
+          setGate("login");
+          return null;
+        }
+        setGate(null);
+        return res.json();
+      })
+      .then((data) => {
+        if (data) {
+          setItems(data.watchlist ?? []);
+          setAlerts(data.alerts ?? []);
+        }
+      })
+      .catch(() => {
+        // A failed refresh just leaves the last known list in place.
+      })
+      .finally(() => setLoaded(true));
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function handleAdd(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = symbol.trim();
+    if (!trimmed || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: trimmed, condition }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Something went wrong. Please try again.");
+      setSymbol("");
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRemove(id: string) {
+    try {
+      const res = await fetch(`/api/watchlist?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? "Something went wrong. Please try again.");
+      }
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
+    }
+  }
+
+  if (gate === "login") {
+    return (
+      <div className="glass-card p-4 text-sm text-[var(--text-secondary)]">
+        <Link href="/login" className="text-neon-cyan underline">
+          Log in
+        </Link>{" "}
+        to build a watchlist and get alerted when a condition is met.
+      </div>
+    );
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <>
+      <form onSubmit={handleAdd} className="mb-4 flex flex-col gap-2 sm:flex-row">
+        <input
+          value={symbol}
+          onChange={(e) => setSymbol(e.target.value)}
+          placeholder="Ticker symbol, e.g. AAPL"
+          maxLength={6}
+          className="input-neon px-4 py-3 text-sm uppercase sm:flex-1"
+        />
+        <select
+          value={condition}
+          onChange={(e) => setCondition(e.target.value)}
+          className="input-neon px-4 py-3 text-sm sm:w-64"
+        >
+          {CONDITION_OPTIONS.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <button type="submit" disabled={loading || !symbol.trim()} className="btn-neon px-6 py-3 text-sm">
+          {loading ? "Adding…" : "Add"}
+        </button>
+      </form>
+
+      {error && <div className="glass-card glass-card-pink mb-4 px-4 py-3 text-sm text-neon-pink">{error}</div>}
+
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
+        <div className="glass-card p-4">
+          <h3 className="mb-3 text-sm font-medium text-[var(--text-secondary)]">Watching</h3>
+          {items.length === 0 ? (
+            <p className="text-sm text-[var(--text-secondary)]">
+              Nothing on your watchlist yet. Add a ticker and a condition above.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {items.map((item) => (
+                <li key={item.id} className="flex items-center justify-between text-sm">
+                  <span>
+                    <span className="font-medium text-[var(--text-primary)]">{item.symbol}</span>{" "}
+                    <span className="text-[var(--text-secondary)]">— {conditionLabel(item.condition)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(item.id)}
+                    className="text-xs text-neon-pink hover:underline"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-xs text-[var(--text-muted)]">
+            Checked once daily by a scheduled job — this is a research monitor, not real-time
+            trading, and never tells you to buy or sell.
+          </p>
+        </div>
+
+        <div className="glass-card p-4">
+          <h3 className="mb-3 text-sm font-medium text-[var(--text-secondary)]">Recent alerts</h3>
+          {alerts.length === 0 ? (
+            <p className="text-sm text-[var(--text-secondary)]">No alerts triggered yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {alerts.map((a) => (
+                <li key={a.id} className="text-sm">
+                  <p className="text-[var(--text-primary)]">{a.message}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{new Date(a.triggered_at).toLocaleString()}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function AuthHeader() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
@@ -603,7 +859,7 @@ function AuthHeader() {
 }
 
 export default function ChatPage() {
-  const [mode, setMode] = useState<"advisor" | "stock">("advisor");
+  const [mode, setMode] = useState<"advisor" | "stock" | "watchlist">("advisor");
 
   return (
     <div className="flex flex-1 flex-col items-center px-4">
@@ -611,7 +867,9 @@ export default function ChatPage() {
         <AuthHeader />
         <ModeToggle mode={mode} setMode={setMode} />
         <Disclaimer />
-        {mode === "advisor" ? <AdvisorPanel /> : <StockPanel />}
+        {mode === "advisor" && <AdvisorPanel />}
+        {mode === "stock" && <StockPanel />}
+        {mode === "watchlist" && <WatchlistPanel />}
       </div>
     </div>
   );
