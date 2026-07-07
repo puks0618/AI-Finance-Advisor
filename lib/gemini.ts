@@ -1,5 +1,6 @@
 import { GoogleGenAI, ApiError, ThinkingLevel, type Content } from "@google/genai";
 import { assertNotDirectAdvice } from "./guardrails";
+import { askClaude, chatWithClaude } from "./claude";
 
 // One constant, one place to change if Google's free-tier lineup shifts.
 // The plan's original "gemini-3-flash" doesn't exist as a model ID (verified against
@@ -55,21 +56,42 @@ function finalizeResponse(text: string): string {
   return cleaned;
 }
 
-/** One-shot prompt, no conversation history. Used for stock-brief synthesis. */
+/**
+ * One-shot prompt, no conversation history. Used for stock-brief synthesis and structured
+ * JSON extraction (profile extraction, stock sentiment/scenarios).
+ *
+ * `skipGuardrailCheck` must be set for callers that parse the result as JSON: the 6.1
+ * direct-advice scanner appends a disclaimer *string* on a violation, which would corrupt JSON
+ * structure. Those callers are responsible for running assertNotDirectAdvice themselves on the
+ * individual text fields *after* parsing, not on the raw envelope.
+ */
 export async function askGemini(
   prompt: string,
   systemInstruction?: string,
-  thinkingLevel: ThinkingLevel = ThinkingLevel.HIGH // quality matters more than latency here
+  thinkingLevel: ThinkingLevel = ThinkingLevel.HIGH, // quality matters more than latency here
+  skipGuardrailCheck = false
 ): Promise<string> {
-  const ai = getClient();
-  const response = await withRetry(() =>
-    ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: { systemInstruction, thinkingConfig: { thinkingLevel } },
-    })
-  );
-  return finalizeResponse(response.text ?? "");
+  try {
+    const ai = getClient();
+    const response = await withRetry(() =>
+      ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: prompt,
+        config: { systemInstruction, thinkingConfig: { thinkingLevel } },
+      })
+    );
+    const text = response.text ?? "";
+    return skipGuardrailCheck ? text : finalizeResponse(text);
+  } catch (err) {
+    console.warn("Gemini request failed, falling back to Claude:", err);
+    try {
+      const text = await askClaude(prompt, systemInstruction);
+      return skipGuardrailCheck ? text : finalizeResponse(text);
+    } catch (fallbackErr) {
+      console.error("Claude fallback also failed:", fallbackErr);
+      throw new GeminiUnavailableError("The assistant is busy right now, please try again in a moment.");
+    }
+  }
 }
 
 export interface ChatTurn {
@@ -83,19 +105,29 @@ export async function chatWithGemini(
   message: string,
   systemInstruction?: string
 ): Promise<string> {
-  const ai = getClient();
-  const priorTurns: Content[] = history.map((turn) => ({
-    role: turn.role,
-    parts: [{ text: turn.text }],
-  }));
-  const chat = ai.chats.create({
-    model: MODEL_NAME,
-    config: {
-      systemInstruction,
-      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }, // latency matters for chat
-    },
-    history: priorTurns,
-  });
-  const response = await withRetry(() => chat.sendMessage({ message }));
-  return finalizeResponse(response.text ?? "");
+  try {
+    const ai = getClient();
+    const priorTurns: Content[] = history.map((turn) => ({
+      role: turn.role,
+      parts: [{ text: turn.text }],
+    }));
+    const chat = ai.chats.create({
+      model: MODEL_NAME,
+      config: {
+        systemInstruction,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }, // latency matters for chat
+      },
+      history: priorTurns,
+    });
+    const response = await withRetry(() => chat.sendMessage({ message }));
+    return finalizeResponse(response.text ?? "");
+  } catch (err) {
+    console.warn("Gemini request failed, falling back to Claude:", err);
+    try {
+      return finalizeResponse(await chatWithClaude(history, message, systemInstruction));
+    } catch (fallbackErr) {
+      console.error("Claude fallback also failed:", fallbackErr);
+      throw new GeminiUnavailableError("The assistant is busy right now, please try again in a moment.");
+    }
+  }
 }
