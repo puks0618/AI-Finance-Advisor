@@ -142,3 +142,16 @@ export function detectPatterns(candles: Candle[]): DetectedPattern[] {
 
   return patterns;
 }
+
+export interface PatternBias {
+  bullish: number;
+  bearish: number;
+  neutral: number;
+}
+
+/** Pure tally of detected-pattern signals — deterministic, no AI, safe to show alongside sentiment. */
+export function summarizePatternBias(patterns: DetectedPattern[]): PatternBias {
+  const bias: PatternBias = { bullish: 0, bearish: 0, neutral: 0 };
+  for (const p of patterns) bias[p.signal]++;
+  return bias;
+}

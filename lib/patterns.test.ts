@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectPatterns, type Candle } from "./patterns";
+import { detectPatterns, summarizePatternBias, type Candle, type DetectedPattern } from "./patterns";
 
 function candle(date: string, open: number, high: number, low: number, close: number): Candle {
   return { date, open, high, low, close, volume: 1000 };
@@ -125,5 +125,20 @@ describe("detectPatterns — Bearish Engulfing", () => {
 describe("detectPatterns — edge cases", () => {
   it("returns an empty array for an empty candle list", () => {
     expect(detectPatterns([])).toEqual([]);
+  });
+});
+
+describe("summarizePatternBias", () => {
+  function pattern(signal: DetectedPattern["signal"]): DetectedPattern {
+    return { name: "Test", signal, date: "2026-06-01", description: "" };
+  }
+
+  it("tallies signals by type", () => {
+    const patterns = [pattern("bullish"), pattern("bullish"), pattern("bearish"), pattern("neutral")];
+    expect(summarizePatternBias(patterns)).toEqual({ bullish: 2, bearish: 1, neutral: 1 });
+  });
+
+  it("returns all zeros for no patterns", () => {
+    expect(summarizePatternBias([])).toEqual({ bullish: 0, bearish: 0, neutral: 0 });
   });
 });

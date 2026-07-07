@@ -34,7 +34,8 @@ export async function extractProfile(conversationText: string): Promise<Extracte
     const raw = await askGemini(
       `Conversation so far:\n${conversationText}`,
       EXTRACTION_INSTRUCTION,
-      ThinkingLevel.MINIMAL
+      ThinkingLevel.MINIMAL,
+      true // JSON response — a guardrail-triggered disclaimer append would corrupt it
     );
     const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
     const result: ExtractedProfile = {};

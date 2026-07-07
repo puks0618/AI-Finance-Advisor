@@ -11,7 +11,7 @@ function CheckoutBanner() {
 
   if (checkout === "success") {
     return (
-      <div className="mb-6 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+      <div className="glass-card mb-6 px-4 py-3 text-sm text-neon-green">
         Payment received — welcome to Pro! It may take a few seconds for your status to update
         below.
       </div>
@@ -19,13 +19,40 @@ function CheckoutBanner() {
   }
   if (checkout === "cancelled") {
     return (
-      <div className="mb-6 rounded-lg bg-zinc-100 px-4 py-3 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+      <div className="glass-card mb-6 px-4 py-3 text-sm text-[var(--text-secondary)]">
         Checkout cancelled — no charge was made.
       </div>
     );
   }
   return null;
 }
+
+const COMPARISON: { feature: string; free: string; pro: string }[] = [
+  { feature: "Finance Advisor chat", free: "Unlimited", pro: "Unlimited" },
+  { feature: "Stock research requests", free: "5 / day", pro: "Unlimited" },
+  { feature: "Candlestick pattern detection", free: "✓", pro: "✓" },
+  { feature: "Persistent risk profile", free: "✓", pro: "✓" },
+  { feature: "Proactive AI alert calls", free: "—", pro: "Coming soon" },
+];
+
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: "Is this real financial advice?",
+    a: "No. Everything here is framed as research and education, never as a buy/sell instruction. For major financial decisions, talk to a licensed professional.",
+  },
+  {
+    q: "How does the daily free limit work?",
+    a: "Free accounts get 5 stock research requests in any rolling 24-hour window. It resets gradually as your oldest requests age past 24 hours — no fixed reset time.",
+  },
+  {
+    q: "Can I cancel anytime?",
+    a: "Yes. Pro is a standard monthly subscription through Stripe with no lock-in — cancel whenever you like from your Stripe billing portal.",
+  },
+  {
+    q: "Is my payment secure?",
+    a: "We never see your card details. Checkout is hosted entirely by Stripe, and this is currently running in Stripe test mode.",
+  },
+];
 
 export default function PricingPage() {
   const [loggedIn, setLoggedIn] = useState(false);
@@ -64,60 +91,110 @@ export default function PricingPage() {
   const userIsPro = status === "active";
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-zinc-50 px-4 py-12 dark:bg-black">
-      <div className="w-full max-w-2xl">
+    <div className="glow-field flex flex-1 flex-col">
+      <nav className="mx-auto w-full max-w-5xl px-6 py-6">
+        <Link href="/" className="text-lg font-bold tracking-tight">
+          <span className="neon-heading">AI Finance Advisor</span>
+        </Link>
+      </nav>
+
+      <div className="mx-auto w-full max-w-3xl flex-1 px-6 pb-24">
         <Suspense fallback={null}>
           <CheckoutBanner />
         </Suspense>
 
-        <h1 className="mb-8 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">Pricing</h1>
+        <div className="mb-10 flex flex-col items-center gap-3 text-center">
+          <h1 className="text-3xl font-extrabold tracking-tight">
+            Simple <span className="neon-heading">pricing</span>
+          </h1>
+          <p className="text-sm text-[var(--text-secondary)]">
+            Start free. Upgrade whenever the daily research cap gets in your way. Cancel anytime.
+          </p>
+        </div>
 
         <div className="grid gap-6 sm:grid-cols-2">
-          <div className="rounded-2xl bg-white p-6 shadow-sm dark:bg-zinc-900">
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Free</h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">$0/month</p>
-            <ul className="mt-4 flex flex-col gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-              <li>Unlimited Finance Advisor chat</li>
-              <li>5 stock research requests / day</li>
+          <div className="glass-card p-6">
+            <h2 className="text-lg font-bold">Free</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">$0/month</p>
+            <ul className="mt-4 flex flex-col gap-2 text-sm text-[var(--text-secondary)]">
+              <li className="flex items-start gap-2">
+                <span className="text-neon-green">▸</span>Unlimited Finance Advisor chat
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-neon-green">▸</span>5 stock research requests / day
+              </li>
             </ul>
           </div>
 
-          <div className="rounded-2xl border-2 border-zinc-900 bg-white p-6 shadow-sm dark:border-zinc-50 dark:bg-zinc-900">
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">Pro</h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">$9.99/month</p>
-            <ul className="mt-4 flex flex-col gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-              <li>Unlimited Finance Advisor chat</li>
-              <li>Unlimited stock research</li>
-              <li>Proactive alert calls (coming soon)</li>
+          <div className="glass-card relative p-6" style={{ borderColor: "var(--border-strong)" }}>
+            <span className="absolute -top-3 right-6 rounded-full bg-[var(--bg-base)] px-3 py-1 text-[10px] font-semibold tracking-wide text-neon-green uppercase">
+              Most popular
+            </span>
+            <h2 className="text-lg font-bold">Pro</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">$9.99/month</p>
+            <ul className="mt-4 flex flex-col gap-2 text-sm text-[var(--text-secondary)]">
+              <li className="flex items-start gap-2">
+                <span className="text-neon-green">▸</span>Unlimited Finance Advisor chat
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-neon-green">▸</span>Unlimited stock research
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-neon-cyan">▸</span>Proactive alert calls (coming soon)
+              </li>
             </ul>
 
             {!checked ? null : userIsPro ? (
-              <p className="mt-6 rounded-full bg-emerald-100 px-4 py-2 text-center text-sm font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+              <p className="mt-6 rounded-full border border-[var(--border-strong)] px-4 py-2 text-center text-sm font-medium text-neon-green">
                 You&apos;re on Pro
               </p>
             ) : loggedIn ? (
-              <button
-                onClick={handleUpgrade}
-                disabled={upgrading}
-                className="mt-6 w-full rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
-              >
+              <button onClick={handleUpgrade} disabled={upgrading} className="btn-neon mt-6 w-full py-3 text-sm">
                 {upgrading ? "Redirecting…" : "Upgrade to Pro"}
               </button>
             ) : (
-              <Link
-                href="/login"
-                className="mt-6 block w-full rounded-full bg-zinc-900 px-6 py-3 text-center text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900"
-              >
+              <Link href="/login" className="btn-neon mt-6 flex w-full items-center justify-center py-3 text-sm">
                 Log in to upgrade
               </Link>
             )}
 
-            {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+            {error && <p className="mt-3 text-sm text-neon-pink">{error}</p>}
           </div>
         </div>
 
-        <p className="mt-8 text-center text-sm">
-          <Link href="/chat" className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
+        <div className="glass-card mt-10 overflow-x-auto p-6">
+          <table className="w-full min-w-[420px] text-left text-sm">
+            <thead>
+              <tr className="text-[var(--text-secondary)]">
+                <th className="pb-3 font-medium">Feature</th>
+                <th className="pb-3 font-medium">Free</th>
+                <th className="pb-3 font-medium text-neon-green">Pro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARISON.map((row) => (
+                <tr key={row.feature} className="border-t border-[var(--border-subtle)]">
+                  <td className="py-3 text-[var(--text-primary)]">{row.feature}</td>
+                  <td className="py-3 text-[var(--text-secondary)]">{row.free}</td>
+                  <td className="py-3 font-medium text-neon-green">{row.pro}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-10 flex flex-col gap-4">
+          <h2 className="text-xl font-bold">FAQ</h2>
+          {FAQ.map((item) => (
+            <div key={item.q} className="glass-card p-5">
+              <h3 className="font-semibold">{item.q}</h3>
+              <p className="mt-1.5 text-sm leading-6 text-[var(--text-secondary)]">{item.a}</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-10 text-center text-sm">
+          <Link href="/chat" className="underline text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
             Back to the app
           </Link>
         </p>

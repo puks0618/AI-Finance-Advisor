@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
+import { ThinkingLevel } from "@google/genai";
 import { askGemini, GeminiUnavailableError } from "@/lib/gemini";
 import { getQuote, getCompanyNews, type Quote, type NewsItem } from "@/lib/finnhub";
 import { getDailyCandles } from "@/lib/yahoo-candles";
-import { detectPatterns, type Candle, type DetectedPattern } from "@/lib/patterns";
+import {
+  detectPatterns,
+  summarizePatternBias,
+  type Candle,
+  type DetectedPattern,
+  type PatternBias,
+} from "@/lib/patterns";
 import { createClient } from "@/lib/supabase/server";
 import {
   validateTicker,
   validateRiskProfile,
   sanitizeUserText,
+  assertNotDirectAdvice,
   GuardrailError,
   RESEARCH_NOT_ADVICE_RULE,
 } from "@/lib/guardrails";
@@ -79,18 +87,73 @@ ${patternsBlock}
 ${newsBlock}
 --- END UNTRUSTED NEWS DATA ---
 
-Write a 4-6 sentence research brief for this investor's risk profile. Reference the patterns and
-news above where relevant, and note the sentiment you read from the headlines.
+Return strict JSON, nothing else, no markdown fences:
+{
+  "brief": string (4-6 sentence research brief for this investor's risk profile, referencing the
+    patterns and news above where relevant),
+  "sentiment": {"bullish": number, "neutral": number, "bearish": number} (your read of the news
+    headlines' tone, as integer percentages that sum to 100),
+  "upsideScenario": string (1-2 sentences: a plausible scenario in which this stock performs well),
+  "downsideScenario": string (1-2 sentences: a plausible scenario in which this stock performs poorly)
+}
+
+None of these fields may contain a buy/sell/hold recommendation, a price target, or any instruction
+telling the reader what to do — describe possibilities and context only, never a directive.
 `.trim();
 }
 
 const STOCK_SYSTEM_INSTRUCTION = `
-You are a stock research assistant producing a plain-English brief from data that has already been
-gathered for you (a delayed quote, deterministically detected candlestick patterns, and recent
-headlines). Explain the patterns you're given; never second-guess them or invent new ones.
+You are a stock research assistant producing a structured research summary from data that has
+already been gathered for you (a delayed quote, deterministically detected candlestick patterns,
+and recent headlines). Explain the patterns you're given; never second-guess them or invent more.
 
 ${RESEARCH_NOT_ADVICE_RULE}
+
+This applies to every field you return, including the upside/downside scenarios: describe what
+could happen and why, but never tell the reader whether to buy, sell, or hold.
 `.trim();
+
+interface StockAnalysis {
+  brief: string;
+  sentiment: { bullish: number; neutral: number; bearish: number } | null;
+  upsideScenario: string | null;
+  downsideScenario: string | null;
+}
+
+// 6.1 — applied per-field, after JSON parsing, never to the raw envelope (appending a violation
+// disclaimer to raw JSON text would corrupt its structure).
+function finalizeField(text: string): string {
+  const { ok, cleaned } = assertNotDirectAdvice(text);
+  if (!ok) {
+    console.warn("assertNotDirectAdvice: stock analysis field violated the no-direct-advice rule");
+  }
+  return cleaned;
+}
+
+function parseAnalysis(raw: string): StockAnalysis {
+  try {
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    if (typeof parsed.brief !== "string" || !parsed.brief.trim()) {
+      throw new Error("missing brief field");
+    }
+    const s = parsed.sentiment;
+    const sentiment =
+      s && typeof s.bullish === "number" && typeof s.neutral === "number" && typeof s.bearish === "number"
+        ? { bullish: s.bullish, neutral: s.neutral, bearish: s.bearish }
+        : null;
+    return {
+      brief: finalizeField(parsed.brief),
+      sentiment,
+      upsideScenario: typeof parsed.upsideScenario === "string" ? finalizeField(parsed.upsideScenario) : null,
+      downsideScenario:
+        typeof parsed.downsideScenario === "string" ? finalizeField(parsed.downsideScenario) : null,
+    };
+  } catch {
+    // The model didn't return valid JSON — degrade to showing the raw text as the brief rather
+    // than failing the whole request; the structured extras just won't be present.
+    return { brief: finalizeField(raw), sentiment: null, upsideScenario: null, downsideScenario: null };
+  }
+}
 
 export async function POST(request: Request) {
   let body: StockRequestBody;
@@ -170,10 +233,12 @@ export async function POST(request: Request) {
   }
 
   const patterns = detectPatterns(candles);
+  const patternBias: PatternBias = summarizePatternBias(patterns);
   const prompt = buildPrompt(symbol, riskProfile, quote, candles, patterns, news);
 
   try {
-    const brief = await askGemini(prompt, STOCK_SYSTEM_INSTRUCTION);
+    const raw = await askGemini(prompt, STOCK_SYSTEM_INSTRUCTION, ThinkingLevel.HIGH, true);
+    const analysis = parseAnalysis(raw);
 
     if (!userIsPro) {
       const { error: insertError } = await supabase
@@ -186,8 +251,12 @@ export async function POST(request: Request) {
       symbol,
       quote,
       patterns,
+      patternBias,
       news,
-      brief,
+      brief: analysis.brief,
+      sentiment: analysis.sentiment,
+      upsideScenario: analysis.upsideScenario,
+      downsideScenario: analysis.downsideScenario,
       dataDelayed: true,
     });
   } catch (err) {

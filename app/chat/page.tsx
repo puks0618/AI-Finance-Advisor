@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
@@ -35,50 +35,96 @@ interface NewsItem {
   datetime: number;
 }
 
+interface PatternBias {
+  bullish: number;
+  bearish: number;
+  neutral: number;
+}
+
+interface Sentiment {
+  bullish: number;
+  neutral: number;
+  bearish: number;
+}
+
 interface StockResult {
   symbol: string;
   quote: Quote | null;
   patterns: DetectedPattern[];
+  patternBias: PatternBias;
   news: NewsItem[];
   brief: string;
+  sentiment: Sentiment | null;
+  upsideScenario: string | null;
+  downsideScenario: string | null;
   dataDelayed: boolean;
 }
 
-const DISCLAIMER = (
-  <p className="mb-4 rounded-lg bg-zinc-100 px-4 py-3 text-xs leading-5 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-    This is a research and education tool, not a licensed financial advisor. It won&apos;t tell you
-    to buy or sell anything — for major financial decisions, consult a qualified professional.
-  </p>
-);
+interface SubscriptionInfo {
+  status: string | null;
+  remainingToday: number | null;
+  dailyLimit: number;
+}
 
-function ModeToggle({ mode, setMode }: { mode: "advisor" | "stock"; setMode: (m: "advisor" | "stock") => void }) {
+// Gemini replies use **bold** markdown; render it as real emphasis instead of literal asterisks.
+function renderInline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={i} className="font-semibold text-[var(--text-primary)]">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
+function Disclaimer() {
+  return (
+    <div className="mb-4 flex items-start gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-xs leading-5 text-[var(--text-muted)]">
+      <span className="text-neon-yellow">⚠</span>
+      <p>
+        This is a research and education tool, not a licensed financial advisor. It won&apos;t
+        tell you to buy or sell anything — for major financial decisions, consult a qualified
+        professional.
+      </p>
+    </div>
+  );
+}
+
+function ModeToggle({
+  mode,
+  setMode,
+}: {
+  mode: "advisor" | "stock";
+  setMode: (m: "advisor" | "stock") => void;
+}) {
   return (
     <div className="mb-4 flex gap-2">
       <button
         type="button"
         onClick={() => setMode("advisor")}
-        className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-          mode === "advisor"
-            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-            : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-        }`}
+        className={`px-4 py-2 text-sm font-medium ${mode === "advisor" ? "btn-neon" : "btn-ghost"}`}
       >
-        Finance Advisor
+        💬 Finance Advisor
       </button>
       <button
         type="button"
         onClick={() => setMode("stock")}
-        className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-          mode === "stock"
-            ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-            : "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-        }`}
+        className={`px-4 py-2 text-sm font-medium ${mode === "stock" ? "btn-neon" : "btn-ghost"}`}
       >
-        Stock Research
+        📈 Stock Research
       </button>
     </div>
   );
 }
+
+const EXAMPLE_PROMPTS = [
+  "I'm 28, earn $70k, and have no savings yet — where do I start?",
+  "I have $10k in credit card debt at 22% APR. What should I focus on?",
+  "How much should I keep in an emergency fund?",
+];
 
 function AdvisorPanel() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -86,9 +132,8 @@ function AdvisorPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = input.trim();
+  async function submitMessage(text: string) {
+    const trimmed = text.trim();
     if (!trimmed || loading) return;
 
     const history = messages;
@@ -115,39 +160,61 @@ function AdvisorPanel() {
     }
   }
 
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    await submitMessage(input);
+  }
+
   return (
     <>
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
         {messages.length === 0 && (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Tell me about your income, savings goals, or what&apos;s on your mind financially —
-            I&apos;ll ask a few questions before offering any thoughts.
-          </p>
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-[var(--text-secondary)]">
+              Tell me about your income, savings goals, or what&apos;s on your mind financially —
+              I&apos;ll ask a few questions before offering any thoughts.
+            </p>
+            <div className="flex flex-col gap-2">
+              {EXAMPLE_PROMPTS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => submitMessage(p)}
+                  className="glass-card px-4 py-2.5 text-left text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  &ldquo;{p}&rdquo;
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {messages.map((m, i) => (
           <div
             key={i}
             className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 whitespace-pre-wrap ${
               m.role === "user"
-                ? "self-end bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
-                : "self-start bg-white text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200"
+                ? "self-end font-medium text-[#04140a]"
+                : "glass-card self-start text-[var(--text-primary)]"
             }`}
+            style={
+              m.role === "user"
+                ? { background: "linear-gradient(135deg, var(--neon-green), var(--neon-cyan))" }
+                : undefined
+            }
           >
-            {m.text}
+            {m.role === "model" ? renderInline(m.text) : m.text}
           </div>
         ))}
         {loading && (
-          <div className="self-start rounded-2xl bg-white px-4 py-3 text-sm text-zinc-400 shadow-sm dark:bg-zinc-900">
-            Thinking…
+          <div className="glass-card flex items-center gap-1.5 self-start px-4 py-3">
+            <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-[var(--neon-green)]" />
+            <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-[var(--neon-green)]" />
+            <span className="pulse-dot h-1.5 w-1.5 rounded-full bg-[var(--neon-green)]" />
           </div>
         )}
       </div>
 
-      {error && (
-        <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </div>
-      )}
+      {error && <div className="glass-card glass-card-pink mt-4 px-4 py-3 text-sm text-neon-pink">{error}</div>}
 
       <form onSubmit={handleSubmit} className="mt-4 flex gap-2">
         <input
@@ -155,13 +222,9 @@ function AdvisorPanel() {
           onChange={(e) => setInput(e.target.value)}
           placeholder="Type a message…"
           maxLength={4000}
-          className="flex-1 rounded-full border border-zinc-300 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className="input-neon flex-1 px-4 py-3 text-sm"
         />
-        <button
-          type="submit"
-          disabled={loading || !input.trim()}
-          className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        <button type="submit" disabled={loading || !input.trim()} className="btn-neon px-6 py-3 text-sm">
           Send
         </button>
       </form>
@@ -170,10 +233,16 @@ function AdvisorPanel() {
 }
 
 const SIGNAL_STYLES: Record<DetectedPattern["signal"], string> = {
-  bullish: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-  bearish: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-  neutral: "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  bullish: "border border-[rgba(60,255,122,0.4)] bg-[rgba(60,255,122,0.1)] text-neon-green",
+  bearish: "border border-[rgba(255,77,109,0.4)] bg-[rgba(255,77,109,0.1)] text-neon-pink",
+  neutral: "border border-[rgba(34,211,238,0.35)] bg-[rgba(34,211,238,0.08)] text-neon-cyan",
 };
+
+const SIGNAL_LEGEND: { signal: DetectedPattern["signal"]; label: string; hint: string }[] = [
+  { signal: "bullish", label: "Bullish", hint: "Buyers overwhelmed sellers in the pattern" },
+  { signal: "bearish", label: "Bearish", hint: "Sellers overwhelmed buyers in the pattern" },
+  { signal: "neutral", label: "Neutral", hint: "Indecision between buyers and sellers" },
+];
 
 function StockPanel() {
   const [symbol, setSymbol] = useState("");
@@ -181,6 +250,20 @@ function StockPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gate, setGate] = useState<"login" | "upgrade" | null>(null);
+  const [usage, setUsage] = useState<SubscriptionInfo | null>(null);
+
+  function refreshUsage() {
+    fetch("/api/subscription")
+      .then((res) => res.json())
+      .then((data) => setUsage(data))
+      .catch(() => {
+        // Usage badge is a nice-to-have; never block research over it.
+      });
+  }
+
+  useEffect(() => {
+    refreshUsage();
+  }, []);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -204,6 +287,7 @@ function StockPanel() {
         throw new Error(data.error ?? "Something went wrong. Please try again.");
       }
       setResult(data);
+      refreshUsage();
     } catch (err) {
       setResult(null);
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -214,33 +298,39 @@ function StockPanel() {
 
   return (
     <>
+      {usage?.status === "active" ? (
+        <div className="mb-4 inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1 text-xs font-medium text-neon-green">
+          ⚡ Pro · Unlimited research
+        </div>
+      ) : usage?.remainingToday !== null && usage?.remainingToday !== undefined ? (
+        <div className="mb-4 inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-1 text-xs text-[var(--text-secondary)]">
+          {usage.remainingToday} of {usage.dailyLimit} free requests left today
+        </div>
+      ) : null}
+
       <form onSubmit={handleSubmit} className="mb-4 flex gap-2">
         <input
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
           placeholder="Ticker symbol, e.g. AAPL"
           maxLength={6}
-          className="flex-1 rounded-full border border-zinc-300 bg-white px-4 py-3 text-sm uppercase outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className="input-neon flex-1 px-4 py-3 text-sm uppercase"
         />
-        <button
-          type="submit"
-          disabled={loading || !symbol.trim()}
-          className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        <button type="submit" disabled={loading || !symbol.trim()} className="btn-neon px-6 py-3 text-sm">
           {loading ? "Researching…" : "Research"}
         </button>
       </form>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+        <div className="glass-card glass-card-pink mb-4 px-4 py-3 text-sm text-neon-pink">
           <p>{error}</p>
           {gate === "login" && (
-            <Link href="/login" className="mt-2 inline-block underline">
+            <Link href="/login" className="btn-ghost mt-3 inline-flex px-4 py-1.5 text-xs font-medium text-[var(--text-primary)]">
               Log in
             </Link>
           )}
           {gate === "upgrade" && (
-            <Link href="/pricing" className="mt-2 inline-block underline">
+            <Link href="/pricing" className="btn-neon mt-3 inline-flex px-4 py-1.5 text-xs">
               Upgrade to Pro
             </Link>
           )}
@@ -248,25 +338,21 @@ function StockPanel() {
       )}
 
       {!result && !error && !loading && (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Enter a ticker to get a price snapshot, detected candlestick patterns, and a plain-English
-          research brief tailored to a moderate risk profile. Requires an account; free accounts
-          get 5 requests per day.
+        <p className="text-sm text-[var(--text-secondary)]">
+          Enter a ticker to get a price snapshot, detected candlestick patterns, and a
+          plain-English research brief tailored to a moderate risk profile. Requires an account;
+          free accounts get 5 requests per day.
         </p>
       )}
 
       {result && (
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
-          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-zinc-900">
+          <div className="glass-card p-4">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{result.symbol}</h2>
+              <h2 className="neon-heading text-lg font-bold">{result.symbol}</h2>
               {result.quote && (
                 <span
-                  className={
-                    result.quote.change >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400"
-                  }
+                  className={`font-mono ${result.quote.change >= 0 ? "text-neon-green" : "text-neon-pink"}`}
                 >
                   {result.quote.current.toFixed(2)} ({result.quote.change >= 0 ? "+" : ""}
                   {result.quote.percentChange.toFixed(2)}%)
@@ -274,18 +360,29 @@ function StockPanel() {
               )}
             </div>
             {result.dataDelayed && (
-              <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
                 Prices delayed ~15-20 minutes, not real-time.
               </p>
             )}
           </div>
 
-          <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-zinc-900">
-            <h3 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-              Detected patterns
-            </h3>
+          <div className="glass-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-[var(--text-secondary)]">Detected patterns</h3>
+              <div className="flex gap-2">
+                {SIGNAL_LEGEND.map((l) => (
+                  <span
+                    key={l.signal}
+                    title={l.hint}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SIGNAL_STYLES[l.signal]}`}
+                  >
+                    {l.label}
+                  </span>
+                ))}
+              </div>
+            </div>
             {result.patterns.length === 0 ? (
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              <p className="text-sm text-[var(--text-secondary)]">
                 No notable candlestick patterns in the recent data.
               </p>
             ) : (
@@ -295,22 +392,67 @@ function StockPanel() {
                     <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-medium ${SIGNAL_STYLES[p.signal]}`}>
                       {p.name}
                     </span>
-                    <span className="text-zinc-600 dark:text-zinc-300">{p.description}</span>
+                    <span className="text-[var(--text-secondary)]">{p.description}</span>
                   </li>
                 ))}
               </ul>
             )}
+            <p className="mt-3 text-xs text-[var(--text-muted)]">
+              Detected deterministically from real price data — code, not a prediction.
+              {" · "}Pattern bias: {result.patternBias.bullish} bullish · {result.patternBias.bearish} bearish
+              · {result.patternBias.neutral} neutral
+            </p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4 text-sm leading-6 whitespace-pre-wrap text-zinc-800 shadow-sm dark:bg-zinc-900 dark:text-zinc-200">
-            {result.brief}
+          {result.sentiment && (
+            <div className="glass-card p-4">
+              <h3 className="mb-3 text-sm font-medium text-[var(--text-secondary)]">News sentiment</h3>
+              <div className="flex h-2 overflow-hidden rounded-full bg-[var(--bg-surface-strong)]">
+                {result.sentiment.bullish > 0 && (
+                  <div style={{ width: `${result.sentiment.bullish}%`, background: "var(--neon-green)" }} />
+                )}
+                {result.sentiment.neutral > 0 && (
+                  <div style={{ width: `${result.sentiment.neutral}%`, background: "var(--neon-cyan)" }} />
+                )}
+                {result.sentiment.bearish > 0 && (
+                  <div style={{ width: `${result.sentiment.bearish}%`, background: "var(--neon-pink)" }} />
+                )}
+              </div>
+              <div className="mt-2 flex gap-4 text-xs text-[var(--text-secondary)]">
+                <span className="text-neon-green">{result.sentiment.bullish}% bullish</span>
+                <span className="text-neon-cyan">{result.sentiment.neutral}% neutral</span>
+                <span className="text-neon-pink">{result.sentiment.bearish}% bearish</span>
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                Read from recent headline tone — not a forecast.
+              </p>
+            </div>
+          )}
+
+          <div className="glass-card p-4 text-sm leading-6 whitespace-pre-wrap text-[var(--text-primary)]">
+            {renderInline(result.brief)}
           </div>
+
+          {(result.upsideScenario || result.downsideScenario) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {result.upsideScenario && (
+                <div className="glass-card p-4">
+                  <h3 className="mb-2 text-sm font-medium text-neon-green">Upside scenario</h3>
+                  <p className="text-sm leading-6 text-[var(--text-secondary)]">{result.upsideScenario}</p>
+                </div>
+              )}
+              {result.downsideScenario && (
+                <div className="glass-card glass-card-pink p-4">
+                  <h3 className="mb-2 text-sm font-medium text-neon-pink">Downside scenario</h3>
+                  <p className="text-sm leading-6 text-[var(--text-secondary)]">{result.downsideScenario}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {result.news.length > 0 && (
-            <div className="rounded-2xl bg-white p-4 shadow-sm dark:bg-zinc-900">
-              <h3 className="mb-2 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                Recent headlines
-              </h3>
+            <div className="glass-card p-4">
+              <h3 className="mb-2 text-sm font-medium text-[var(--text-secondary)]">Recent headlines</h3>
               <ul className="flex flex-col gap-2">
                 {result.news.map((n, i) => (
                   <li key={i} className="text-sm">
@@ -318,13 +460,11 @@ function StockPanel() {
                       href={n.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-zinc-800 underline decoration-zinc-300 hover:decoration-zinc-500 dark:text-zinc-200 dark:decoration-zinc-600"
+                      className="text-[var(--text-primary)] underline decoration-[var(--border-subtle)] hover:text-neon-cyan hover:decoration-neon-cyan"
                     >
                       {n.headline}
                     </a>
-                    <span className="ml-1 text-xs text-zinc-400 dark:text-zinc-500">
-                      ({n.source})
-                    </span>
+                    <span className="ml-1 text-xs text-[var(--text-muted)]">({n.source})</span>
                   </li>
                 ))}
               </ul>
@@ -339,12 +479,26 @@ function StockPanel() {
 function AuthHeader() {
   const [user, setUser] = useState<User | null>(null);
   const [checked, setChecked] = useState(false);
+  const [isPro, setIsPro] = useState(false);
+  const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => {
       setUser(data.user);
       setChecked(true);
+      if (data.user) {
+        fetch("/api/subscription")
+          .then((r) => r.json())
+          .then((d) => setIsPro(d.status === "active"))
+          .catch(() => null);
+        supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", data.user.id)
+          .maybeSingle()
+          .then(({ data: profile }) => setDisplayName(profile?.full_name ?? null));
+      }
     });
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
@@ -361,22 +515,34 @@ function AuthHeader() {
   if (!checked) return null;
 
   return (
-    <div className="mb-4 flex items-center justify-end gap-3 text-sm text-zinc-500 dark:text-zinc-400">
-      <Link href="/pricing" className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
-        Pricing
+    <div className="mb-4 flex items-center justify-between gap-3 text-sm">
+      <Link href="/" className="font-bold tracking-tight">
+        <span className="neon-heading">AI Finance Advisor</span>
       </Link>
-      {user ? (
-        <>
-          <span>{user.email}</span>
-          <button onClick={handleLogout} className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
-            Log out
-          </button>
-        </>
-      ) : (
-        <Link href="/login" className="underline hover:text-zinc-700 dark:hover:text-zinc-200">
-          Log in to save your profile
+      <div className="flex items-center gap-3 text-[var(--text-secondary)]">
+        <Link href="/pricing" className="hover:text-[var(--text-primary)]">
+          Pricing
         </Link>
-      )}
+        {user ? (
+          <>
+            {isPro && (
+              <span className="rounded-full border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-semibold text-neon-green">
+                PRO
+              </span>
+            )}
+            <Link href="/profile" className="hover:text-[var(--text-primary)]">
+              {displayName || user.email}
+            </Link>
+            <button onClick={handleLogout} className="underline hover:text-[var(--text-primary)]">
+              Log out
+            </button>
+          </>
+        ) : (
+          <Link href="/login" className="underline hover:text-[var(--text-primary)]">
+            Log in to save your profile
+          </Link>
+        )}
+      </div>
     </div>
   );
 }
@@ -385,11 +551,11 @@ export default function ChatPage() {
   const [mode, setMode] = useState<"advisor" | "stock">("advisor");
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-zinc-50 px-4 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center px-4">
       <div className="flex w-full max-w-2xl flex-1 flex-col py-8">
         <AuthHeader />
         <ModeToggle mode={mode} setMode={setMode} />
-        {DISCLAIMER}
+        <Disclaimer />
         {mode === "advisor" ? <AdvisorPanel /> : <StockPanel />}
       </div>
     </div>
