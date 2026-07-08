@@ -179,7 +179,13 @@ This is a finance product touching people's money, personal data, and a phone li
 - **Where:** field guards in `app/api/stock/route.ts`; a "delayed data" label in the stock UI.
 - **Why:** prevents the AI from confidently analyzing data that isn't there, and sets honest expectations.
 
-**Guardrail acceptance (verify as a group during Phase 8):** each numbered scenario above has a concrete test — try the bad input, the forged request, the buy/sell question, the second account, the double cron call — and confirm the guardrail holds.
+### 6.13 The off-topic request scenario
+- **Situation:** a user asks the advisor chat (or the phone assistant) something unrelated to personal finance or investing — "tell me a joke," general trivia, coding help, or any other off-topic request.
+- **Guardrail:** the assistant declines in one short sentence and redirects back to what it can help with, rather than answering even briefly. This holds even if the user insists, rephrases, or asks it to roleplay as something else.
+- **Where:** `ON_TOPIC_ONLY_RULE` in `lib/guardrails.ts`, included in the advisor system instruction in `app/api/chat/route.ts`. Unlike 6.1's buy/sell check, there's no reliable post-generation regex net for "off-topic" (it has no fixed shape), so the system instruction is the guardrail itself.
+- **Why:** keeps the product scoped to its purpose and avoids it being used as a general-purpose chatbot.
+
+**Guardrail acceptance (verify as a group during Phase 8):** each numbered scenario above has a concrete test — try the bad input, the forged request, the buy/sell question, the second account, the double cron call, the off-topic question — and confirm the guardrail holds.
 
 ---
 
