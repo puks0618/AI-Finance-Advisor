@@ -137,6 +137,76 @@ function Disclaimer() {
   );
 }
 
+// Shared between the general advisor entry point and the per-alert "Discuss this" shortcut —
+// both just POST to the same rate-limited, Pro-gated /api/calls route with a different context.
+function CallAdvisorButton({
+  context,
+  alertId,
+  label,
+}: {
+  context: "general" | "alert";
+  alertId?: string;
+  label: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string; href?: string; hrefLabel?: string } | null>(
+    null
+  );
+
+  async function handleCall() {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/calls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context, alertId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 401) {
+          setResult({ ok: false, text: "Log in to call the AI Advisor.", href: "/login", hrefLabel: "Log in" });
+        } else if (res.status === 402) {
+          setResult({ ok: false, text: "AI Advisor calls are a Pro feature.", href: "/pricing", hrefLabel: "Upgrade" });
+        } else if (res.status === 400 && String(data.error ?? "").toLowerCase().includes("phone")) {
+          setResult({ ok: false, text: data.error, href: "/profile", hrefLabel: "Verify a number" });
+        } else {
+          setResult({ ok: false, text: data.error ?? "Something went wrong. Please try again." });
+        }
+        return;
+      }
+      setResult({ ok: true, text: "Calling you now — pick up!" });
+    } catch {
+      setResult({ ok: false, text: "Something went wrong. Please try again." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        onClick={handleCall}
+        disabled={loading}
+        className={context === "alert" ? "text-xs text-neon-cyan hover:underline" : "btn-neon px-4 py-2 text-sm"}
+      >
+        {loading ? "Calling…" : label}
+      </button>
+      {result && (
+        <p className={`text-xs ${result.ok ? "text-neon-green" : "text-neon-pink"}`}>
+          {result.text}{" "}
+          {result.href && (
+            <Link href={result.href} className="underline">
+              {result.hrefLabel}
+            </Link>
+          )}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ModeToggle({
   mode,
   setMode,
@@ -241,6 +311,10 @@ function AdvisorPanel() {
 
   return (
     <>
+      <div className="mb-4">
+        <CallAdvisorButton context="general" label="📞 Call the AI Advisor" />
+      </div>
+
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto">
         {messages.length === 0 && (
           <div className="flex flex-col gap-3">
@@ -776,7 +850,10 @@ function WatchlistPanel() {
               {alerts.map((a) => (
                 <li key={a.id} className="text-sm">
                   <p className="text-[var(--text-primary)]">{a.message}</p>
-                  <p className="text-xs text-[var(--text-muted)]">{new Date(a.triggered_at).toLocaleString()}</p>
+                  <div className="mt-1 flex items-center gap-3">
+                    <p className="text-xs text-[var(--text-muted)]">{new Date(a.triggered_at).toLocaleString()}</p>
+                    <CallAdvisorButton context="alert" alertId={a.id} label="📞 Discuss this" />
+                  </div>
                 </li>
               ))}
             </ul>
