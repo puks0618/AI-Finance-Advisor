@@ -32,7 +32,7 @@ const COMPARISON: { feature: string; free: string; pro: string }[] = [
   { feature: "Stock research requests", free: "5 / day", pro: "Unlimited" },
   { feature: "Candlestick pattern detection", free: "✓", pro: "✓" },
   { feature: "Persistent risk profile", free: "✓", pro: "✓" },
-  { feature: "Proactive AI alert calls", free: "—", pro: "Coming soon" },
+  { feature: "Proactive AI alert calls", free: "—", pro: "✓" },
 ];
 
 const FAQ: { q: string; a: string }[] = [
@@ -140,7 +140,7 @@ export default function PricingPage() {
                 <span className="text-neon-green">▸</span>Unlimited stock research
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-neon-cyan">▸</span>Proactive alert calls (coming soon)
+                <span className="text-neon-cyan">▸</span>Proactive AI alert calls
               </li>
             </ul>
 

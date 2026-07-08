@@ -35,7 +35,7 @@ const STEPS = [
   {
     n: "03",
     title: "Go unlimited on Pro",
-    body: "$9.99/mo unlocks unlimited stock research and future alert calls.",
+    body: "$9.99/mo unlocks unlimited stock research and proactive AI alert calls.",
   },
 ];
 
@@ -127,7 +127,7 @@ export default function Home() {
           <h2 className="text-2xl font-bold">Free to start, $9.99/mo for unlimited research</h2>
           <p className="max-w-md text-sm text-[var(--text-secondary)]">
             Free accounts get unlimited chat and 5 stock research requests a day. Pro removes the
-            cap and will unlock proactive alert calls.
+            cap and unlocks proactive AI alert calls.
           </p>
           <Link href="/pricing" className="btn-neon flex h-11 items-center px-7 text-sm">
             Compare plans
