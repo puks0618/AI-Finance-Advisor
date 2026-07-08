@@ -84,7 +84,14 @@ export default function LoginPage() {
         : await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      setError(error.message);
+      // Supabase's raw message here is just "Email not confirmed" — doesn't tell the user what
+      // to do about it, and the confirmation email can be slow to arrive (or lost) since this
+      // project uses Supabase's shared, rate-limited default sender rather than custom SMTP.
+      setError(
+        mode === "login" && error.message.toLowerCase().includes("email not confirmed")
+          ? "Please confirm your email before logging in — check your inbox (and spam folder) for the confirmation link from your signup. It can take a few minutes to arrive."
+          : error.message
+      );
       setLoading(false);
       return;
     }
