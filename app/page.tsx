@@ -1,4 +1,5 @@
 import Link from "next/link";
+import NavAuthLink from "./NavAuthLink";
 
 const FEATURES = [
   {
@@ -52,9 +53,7 @@ export default function Home() {
           <Link href="/pricing" className="hover:text-[var(--text-primary)]">
             Pricing
           </Link>
-          <Link href="/login" className="btn-ghost px-4 py-2 font-medium hover:text-[var(--text-primary)]">
-            Log in
-          </Link>
+          <NavAuthLink />
         </div>
       </nav>
 
