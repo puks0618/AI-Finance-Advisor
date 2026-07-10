@@ -14,7 +14,9 @@ Everything is framed as research and education, never as a "buy" or "sell" instr
 - **Next.js (App Router)** — UI + API routes, deployed as Vercel serverless functions.
 - **Gemini** (primary) / **Claude** (fallback) — the single AI brain behind chat, stock briefs, and
   phone calls. One provider fails over to the other on error; see `lib/gemini.ts` / `lib/claude.ts`.
-- **Finnhub** + **Yahoo candles** — quotes, OHLC candles, company news, and sentiment.
+- **Finnhub** — quotes, company news, and sentiment. **Yahoo** (primary) / **Nasdaq** (fallback) —
+  daily OHLC candles; both are free/keyless and unofficial, so one fails over to the other on
+  empty/error, mirroring the Gemini/Claude pattern. See `lib/candles.ts`.
 - **Supabase** — Postgres + auth. Every table has Row-Level Security scoped to `auth.uid()`.
 - **Stripe** (test mode) — subscription checkout and webhook-driven feature gating.
 - **Web Speech API** — in-browser voice chat (progressive enhancement, no server cost).
@@ -81,7 +83,10 @@ lib/
   gemini.ts, claude.ts        AI provider wrapper + fallback, single MODEL_NAME constant
   patterns.ts                 deterministic candlestick pattern engine (unit-tested)
   guardrails.ts                validation, PII redaction, distress detection, advice-phrase check
-  finnhub.ts, yahoo-candles.ts, cache.ts, fetch-with-retry.ts   market data + resilience
+  finnhub.ts, cache.ts, fetch-with-retry.ts   market data + resilience
+  candles.ts                  daily-candle orchestrator: tries yahoo-candles.ts, falls back to
+                               nasdaq-candles.ts on empty/error — the one file to touch if the
+                               candle pipeline breaks
   supabase/                   browser / server / admin Supabase clients
   subscription.ts, watchlist.ts, vapi.ts, useSpeech.ts
 supabase/migrations/           numbered, idempotent SQL migrations (RLS on every table)

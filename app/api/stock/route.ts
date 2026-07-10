@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ThinkingLevel } from "@google/genai";
 import { askGemini, GeminiUnavailableError } from "@/lib/gemini";
 import { getQuote, getCompanyNews, type Quote, type NewsItem } from "@/lib/finnhub";
-import { getDailyCandles } from "@/lib/yahoo-candles";
+import { getDailyCandles } from "@/lib/candles";
 import {
   detectPatterns,
   summarizePatternBias,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getQuote, type Quote } from "@/lib/finnhub";
-import { getDailyCandles } from "@/lib/yahoo-candles";
+import { getDailyCandles } from "@/lib/candles";
 import { detectPatterns, type DetectedPattern } from "@/lib/patterns";
 import { evaluateCondition, describeTrigger, isAlertCondition, type AlertCondition } from "@/lib/watchlist";
 
