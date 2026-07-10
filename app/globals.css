@@ -58,10 +58,14 @@ body {
   background: rgba(60, 255, 122, 0.45);
 }
 
-/* Ambient glow blobs used behind hero / feature sections for depth. */
+/* Ambient glow blobs used behind hero / feature sections for depth. The blobs are intentionally
+   offset past the edges (see ::before/::after below) so the blur fades out before any hard edge —
+   without this overflow: hidden, that offset made the whole page horizontally scrollable on
+   narrow viewports for a purely decorative element. */
 .glow-field {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
 }
 .glow-field::before,
 .glow-field::after {

@@ -23,8 +23,9 @@ async function syncProfileName(supabase: ReturnType<typeof createClient>, userId
     if (!profile?.full_name) {
       await supabase.from("profiles").upsert({ id: userId, full_name: metaName });
     }
-  } catch (err) {
-    console.error("syncProfileName error:", err);
+  } catch {
+    // Client-side only — never log Supabase error detail to the browser console. A failed name
+    // sync just means the display name fills in on a later visit instead.
   }
 }
 
@@ -38,8 +39,8 @@ async function isProfileComplete(supabase: ReturnType<typeof createClient>, user
       .eq("id", userId)
       .maybeSingle();
     return Boolean(profile?.full_name && profile?.address);
-  } catch (err) {
-    console.error("isProfileComplete error:", err);
+  } catch {
+    // Client-side only — never log Supabase error detail to the browser console.
     return true; // never trap a user on a Supabase hiccup
   }
 }

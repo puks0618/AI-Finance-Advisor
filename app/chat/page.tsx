@@ -124,6 +124,13 @@ function stripForSpeech(text: string): string {
   return text.replace(/\*\*/g, "");
 }
 
+// News headline URLs come from a third-party API (Finnhub), not user input, so this is
+// defense-in-depth rather than a response to a known attack — but a malformed/compromised upstream
+// feed returning a `javascript:` URL should never end up in an <a href>.
+function isSafeExternalUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
 // Deterministic, code-computed lean from data already on the page (pattern bias + news
 // sentiment) — never LLM-generated, so it can't drift into a buy/sell/hold directive. Returns
 // null when neither signal is available rather than forcing a reading out of nothing (6.12).
@@ -281,7 +288,7 @@ function ModeToggle({
   setMode: (m: "advisor" | "stock" | "watchlist") => void;
 }) {
   return (
-    <div className="mb-4 flex gap-2">
+    <div className="mb-4 flex flex-wrap gap-2">
       <button
         type="button"
         onClick={() => setMode("advisor")}
@@ -319,8 +326,16 @@ function AdvisorPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [speakReplies, setSpeakReplies] = useState(false);
-  const { micSupported, speechSupported, listening, startListening, stopListening, speak, cancelSpeech } =
-    useSpeech();
+  const {
+    micSupported,
+    speechSupported,
+    listening,
+    error: micError,
+    startListening,
+    stopListening,
+    speak,
+    cancelSpeech,
+  } = useSpeech();
 
   async function submitMessage(text: string) {
     const trimmed = text.trim();
@@ -448,7 +463,7 @@ function AdvisorPanel() {
           onChange={(e) => setInput(e.target.value)}
           placeholder={listening ? "Listening…" : "Type a message…"}
           maxLength={4000}
-          className="input-neon flex-1 px-4 py-3 text-sm"
+          className="input-neon min-w-0 flex-1 px-4 py-3 text-sm"
         />
         {speechSupported && (
           <button
@@ -471,6 +486,7 @@ function AdvisorPanel() {
           still works great.
         </p>
       )}
+      {micError && <p className="mt-2 text-xs text-neon-pink">{micError}</p>}
     </>
   );
 }
@@ -557,7 +573,7 @@ function StockPanel() {
           onChange={(e) => setSymbol(e.target.value)}
           placeholder="Ticker symbol, e.g. AAPL"
           maxLength={6}
-          className="input-neon flex-1 px-4 py-3 text-sm uppercase"
+          className="input-neon min-w-0 flex-1 px-4 py-3 text-sm uppercase"
         />
         <button type="submit" disabled={loading || !symbol.trim()} className="btn-neon px-6 py-3 text-sm">
           {loading ? "Researching…" : "Research"}
@@ -718,14 +734,18 @@ function StockPanel() {
               <ul className="flex flex-col gap-2">
                 {result.news.map((n, i) => (
                   <li key={i} className="text-sm">
-                    <a
-                      href={n.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--text-primary)] underline decoration-[var(--border-subtle)] hover:text-neon-cyan hover:decoration-neon-cyan"
-                    >
-                      {n.headline}
-                    </a>
+                    {isSafeExternalUrl(n.url) ? (
+                      <a
+                        href={n.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--text-primary)] underline decoration-[var(--border-subtle)] hover:text-neon-cyan hover:decoration-neon-cyan"
+                      >
+                        {n.headline}
+                      </a>
+                    ) : (
+                      <span className="text-[var(--text-primary)]">{n.headline}</span>
+                    )}
                     <span className="ml-1 text-xs text-[var(--text-muted)]">({n.source})</span>
                   </li>
                 ))}
@@ -976,11 +996,11 @@ function AuthHeader() {
   if (!checked) return null;
 
   return (
-    <div className="mb-4 flex items-center justify-between gap-3 text-sm">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm">
       <Link href="/" className="font-bold tracking-tight">
         <span className="neon-heading">AI Finance Advisor</span>
       </Link>
-      <div className="flex items-center gap-3 text-[var(--text-secondary)]">
+      <div className="flex flex-wrap items-center gap-3 text-[var(--text-secondary)]">
         <Link href="/pricing" className="hover:text-[var(--text-primary)]">
           Pricing
         </Link>
@@ -991,7 +1011,7 @@ function AuthHeader() {
                 PRO
               </span>
             )}
-            <Link href="/profile" className="hover:text-[var(--text-primary)]">
+            <Link href="/profile" className="max-w-[140px] truncate hover:text-[var(--text-primary)] sm:max-w-[220px]">
               {displayName || user.email}
             </Link>
             <button onClick={handleLogout} className="underline hover:text-[var(--text-primary)]">
