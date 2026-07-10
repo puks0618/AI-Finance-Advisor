@@ -4,7 +4,10 @@ import type { ChatTurn } from "./gemini";
 // Fallback provider only — used when Gemini's free-tier quota or availability fails, so the
 // app stays usable without waiting on Google's daily reset.
 const MODEL_NAME = "claude-sonnet-5";
-const MAX_TOKENS = 1024;
+// Sized for the largest JSON response this app asks for (stock brief + sentiment + upside/
+// downside scenarios + a bounded decision tree) — 1024 was fine for a plain chat reply but was
+// never revisited when that schema grew, so it silently truncated mid-JSON on every fallback.
+const MAX_TOKENS = 4096;
 
 let client: Anthropic | null = null;
 

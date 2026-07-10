@@ -248,6 +248,21 @@ function parseDecisionTree(raw: unknown): DecisionTree | null {
   }
 }
 
+// The model's JSON response can arrive truncated (e.g. a fallback provider's token cap cutting
+// it off before the closing braces) — in that case the "brief" field, written first, is usually
+// still intact even though the overall object isn't valid JSON. This regex-recovers just that
+// field rather than ever falling back to showing the raw (possibly fence-wrapped, mid-object)
+// text directly, which would leak broken JSON straight into the UI.
+function tryRecoverBrief(raw: string): string | null {
+  const match = raw.match(/"brief"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!match) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`);
+  } catch {
+    return null;
+  }
+}
+
 function parseAnalysis(raw: string): StockAnalysis {
   try {
     const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
@@ -268,10 +283,13 @@ function parseAnalysis(raw: string): StockAnalysis {
       decisionTree: parseDecisionTree(parsed.decisionTree),
     };
   } catch {
-    // The model didn't return valid JSON — degrade to showing the raw text as the brief rather
-    // than failing the whole request; the structured extras just won't be present.
+    // The model didn't return valid JSON (often a truncated response) — recover just the brief
+    // field if it's intact, and never show raw/partial JSON text in its place.
+    const recoveredBrief = tryRecoverBrief(raw);
     return {
-      brief: finalizeField(raw),
+      brief: recoveredBrief
+        ? finalizeField(recoveredBrief)
+        : "We couldn't generate a clean research brief this time. Please try again.",
       sentiment: null,
       upsideScenario: null,
       downsideScenario: null,
