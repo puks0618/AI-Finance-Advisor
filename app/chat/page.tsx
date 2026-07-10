@@ -875,6 +875,11 @@ function WatchlistPanel() {
         </button>
       </form>
 
+      <p className="mb-4 text-xs leading-5 text-[var(--text-muted)]">
+        Conditions are checked once a day, not continuously — you may not see same-day intraday
+        moves reflected until the next check.
+      </p>
+
       {error && <div className="glass-card glass-card-pink mb-4 px-4 py-3 text-sm text-neon-pink">{error}</div>}
 
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto">

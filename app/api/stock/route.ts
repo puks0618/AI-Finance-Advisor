@@ -22,6 +22,11 @@ import {
 } from "@/lib/guardrails";
 import { getSubscriptionStatus, isPro, countResearchRequestsToday, FREE_RESEARCH_DAILY_LIMIT } from "@/lib/subscription";
 
+// Vercel's default serverless timeout (10s on Hobby) is too tight for this route's chain:
+// parallel Finnhub+Yahoo fetches (each with 429 backoff) followed by a HIGH-thinking Gemini
+// call and a possible Claude fallback. 60s is the Hobby-tier ceiling.
+export const maxDuration = 60;
+
 // Phase 3 — a logged-in user's own stored risk tolerance always wins over whatever the
 // client sent; the client-supplied value only matters for a signed-out visitor. A Supabase
 // hiccup here should never block stock research, so failures just fall back silently.

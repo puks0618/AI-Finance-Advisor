@@ -5,6 +5,11 @@ import { getDailyCandles } from "@/lib/yahoo-candles";
 import { detectPatterns, type DetectedPattern } from "@/lib/patterns";
 import { evaluateCondition, describeTrigger, isAlertCondition, type AlertCondition } from "@/lib/watchlist";
 
+// Vercel's default serverless timeout (10s on Hobby) can be too tight once this loops market-data
+// fetches (with 429 backoff) across every distinct watched symbol in one run. 60s is the
+// Hobby-tier ceiling.
+export const maxDuration = 60;
+
 interface WatchlistRow {
   id: string;
   user_id: string;

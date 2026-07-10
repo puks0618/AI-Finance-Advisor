@@ -115,3 +115,10 @@ are core functionality, not polish (`lib/guardrails.ts`, enforced in every AI sy
 - A real-estate / mortgage research module (out of scope for the current build).
 - Production-scale telephony — the current Vapi setup targets demo volume on trial credit, not a
   24/7 production call center.
+- **Intraday watchlist checks.** `vercel.json`'s cron schedule runs `/api/cron/check-watchlists`
+  once daily (14:00 UTC), not continuously through market hours — Vercel Cron on the Hobby (free)
+  plan is limited to once-per-day invocations. This means a condition like "TSLA drops 5%" is only
+  evaluated once every 24 hours, so most intraday moves aren't caught until the next day's run.
+  Upgrading to Vercel Pro removes this cap; at that point change the schedule to something like
+  `*/15 13-20 * * 1-5` (every 15 minutes, US market hours, weekdays) to restore the original
+  intraday-monitoring intent.
