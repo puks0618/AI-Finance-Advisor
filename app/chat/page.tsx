@@ -124,6 +124,74 @@ function stripForSpeech(text: string): string {
   return text.replace(/\*\*/g, "");
 }
 
+// Deterministic, code-computed lean from data already on the page (pattern bias + news
+// sentiment) — never LLM-generated, so it can't drift into a buy/sell/hold directive. Returns
+// null when neither signal is available rather than forcing a reading out of nothing (6.12).
+function computeSignalLean(
+  patternBias: PatternBias,
+  sentiment: Sentiment | null
+): { score: number; lean: "bullish" | "bearish" | "neutral" } | null {
+  const scores: number[] = [];
+  const totalPatterns = patternBias.bullish + patternBias.bearish + patternBias.neutral;
+  if (totalPatterns > 0) {
+    scores.push(((patternBias.bullish - patternBias.bearish) / totalPatterns) * 100);
+  }
+  if (sentiment) {
+    scores.push(sentiment.bullish - sentiment.bearish);
+  }
+  if (scores.length === 0) return null;
+
+  const score = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const lean = score >= 30 ? "bullish" : score <= -30 ? "bearish" : "neutral";
+  return { score, lean };
+}
+
+const LEAN_LABEL: Record<"bullish" | "bearish" | "neutral", string> = {
+  bullish: "Bullish lean",
+  bearish: "Bearish lean",
+  neutral: "Mixed / neutral",
+};
+
+const LEAN_COLOR: Record<"bullish" | "bearish" | "neutral", string> = {
+  bullish: "text-neon-green",
+  bearish: "text-neon-pink",
+  neutral: "text-neon-cyan",
+};
+
+function SignalGauge({ patternBias, sentiment }: { patternBias: PatternBias; sentiment: Sentiment | null }) {
+  const result = computeSignalLean(patternBias, sentiment);
+  if (!result) return null;
+  const { score, lean } = result;
+  const position = Math.min(100, Math.max(0, (score + 100) / 2));
+
+  return (
+    <div className="glass-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-[var(--text-secondary)]">Signal lean</h3>
+        <span className={`text-sm font-semibold ${LEAN_COLOR[lean]}`}>{LEAN_LABEL[lean]}</span>
+      </div>
+      <div
+        className="relative h-2 rounded-full"
+        style={{ background: "linear-gradient(90deg, var(--neon-pink), var(--neon-cyan), var(--neon-green))" }}
+      >
+        <div
+          className="absolute -top-1 h-4 w-1 rounded-full bg-white shadow"
+          style={{ left: `${position}%`, transform: "translateX(-50%)" }}
+        />
+      </div>
+      <div className="mt-2 flex justify-between text-[10px] text-[var(--text-muted)]">
+        <span>Bearish</span>
+        <span>Neutral</span>
+        <span>Bullish</span>
+      </div>
+      <p className="mt-3 text-xs text-[var(--text-muted)]">
+        A snapshot of how detected candlestick patterns and recent news tone currently lean —
+        not a forecast, and not a recommendation to buy, sell, or hold.
+      </p>
+    </div>
+  );
+}
+
 function Disclaimer() {
   return (
     <div className="mb-4 flex items-start gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-4 py-3 text-xs leading-5 text-[var(--text-muted)]">
@@ -542,6 +610,8 @@ function StockPanel() {
               </p>
             )}
           </div>
+
+          <SignalGauge patternBias={result.patternBias} sentiment={result.sentiment} />
 
           {result.candles.length > 0 && (
             <div className="glass-card p-4">
