@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getSubscriptionStatus, isPro } from "@/lib/subscription";
 import { placeAdvisorCall, VapiError } from "@/lib/vapi";
 
-// A real phone call costs real money regardless of who triggers it — this caps how many any
-// one account can request per day, same spirit as guardrail 6.10 (originally written for
-// auto-fired alert calls, applied here to user-initiated ones instead).
+// Free for every signed-in user (no Pro gate) — a real phone call still costs real money
+// regardless of who triggers it, so this daily cap per account is the only cost safety net left.
 const MAX_CALLS_PER_DAY = 3;
 
 interface CallRequestBody {
@@ -21,12 +19,6 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Log in to call the AI Advisor." }, { status: 401 });
-  }
-
-  // Server-side gate check, never trusting a client-supplied tier (6.9's pattern applied to calls).
-  const status = await getSubscriptionStatus(supabase, user.id);
-  if (!isPro(status)) {
-    return NextResponse.json({ error: "AI Advisor calls are a Pro feature. Upgrade to enable them." }, { status: 402 });
   }
 
   const { data: profile } = await supabase
