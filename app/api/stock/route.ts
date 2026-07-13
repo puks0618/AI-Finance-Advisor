@@ -11,6 +11,7 @@ import {
   type DetectedPattern,
   type PatternBias,
 } from "@/lib/patterns";
+import { getPricePrediction, PREDICTION_FETCH_DAYS, type PricePrediction } from "@/lib/prediction";
 import { createClient } from "@/lib/supabase/server";
 import {
   validateTicker,
@@ -356,12 +357,12 @@ export async function POST(request: Request) {
   const riskProfile = await resolveRiskProfile(body.riskProfile);
 
   let quote: Quote | null;
-  let candles: Candle[];
+  let candlesFull: Candle[];
   let news: NewsItem[];
   try {
-    [quote, candles, news] = await Promise.all([
+    [quote, candlesFull, news] = await Promise.all([
       getQuote(symbol),
-      getDailyCandles(symbol),
+      getDailyCandles(symbol, PREDICTION_FETCH_DAYS),
       getCompanyNews(symbol),
     ]);
   } catch (err) {
@@ -371,6 +372,10 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  // The chart/pattern-detection/moving-average UX is unchanged from before the wider
+  // PREDICTION_FETCH_DAYS fetch was introduced — only the model training below sees the full window.
+  const candles = candlesFull.slice(-30);
 
   // 6.12 — if nothing at all came back, say so plainly rather than asking the AI to analyze a void.
   if (!quote && candles.length === 0 && news.length === 0) {
@@ -384,6 +389,17 @@ export async function POST(request: Request) {
   const patternBias: PatternBias = summarizePatternBias(patterns);
   const movingAverage = computeMovingAverage(candles, 10);
   const prompt = buildPrompt(symbol, riskProfile, quote, candles, patterns, news);
+
+  // Deterministic, code-computed projection — same "AI explains, code computes" split as pattern
+  // detection above. Isolated in its own try/catch so an edge case here can never take down the
+  // rest of the route.
+  let prediction: PricePrediction | null;
+  try {
+    prediction = getPricePrediction(candlesFull);
+  } catch (err) {
+    console.error("stock route prediction error:", err);
+    prediction = null;
+  }
 
   try {
     const raw = await askGemini(prompt, STOCK_SYSTEM_INSTRUCTION, ThinkingLevel.HIGH, true);
@@ -403,6 +419,7 @@ export async function POST(request: Request) {
       patterns,
       patternBias,
       movingAverage,
+      prediction,
       news,
       brief: analysis.brief,
       sentiment: analysis.sentiment,

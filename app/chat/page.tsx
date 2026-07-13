@@ -44,6 +44,20 @@ interface MovingAveragePoint {
   value: number;
 }
 
+interface PredictedPoint {
+  date: string;
+  predictedClose: number;
+  low: number;
+  high: number;
+}
+
+interface PricePrediction {
+  points: PredictedPoint[];
+  directionalAccuracy: number | null;
+  holdoutSize: number | null;
+  methodology: string;
+}
+
 interface NewsItem {
   headline: string;
   summary: string;
@@ -90,6 +104,7 @@ interface StockResult {
   patterns: DetectedPattern[];
   patternBias: PatternBias;
   movingAverage: MovingAveragePoint[];
+  prediction: PricePrediction | null;
   news: NewsItem[];
   brief: string;
   sentiment: Sentiment | null;
@@ -633,12 +648,22 @@ function StockPanel() {
                 candles={result.candles}
                 patterns={result.patterns}
                 movingAverage={result.movingAverage}
+                prediction={result.prediction}
               />
               <p className="mt-3 text-xs text-[var(--text-muted)]">
                 Markers show detected patterns; the cyan line is a 10-day moving average of real
-                closes — a smoothing indicator, not a forecast. Nothing on this chart extends past
-                today.
+                closes — a smoothing indicator, not a forecast. Solid candles are real historical
+                data; the dashed line and band, when shown, are a statistical projection from a
+                model trained on this symbol&apos;s recent technical indicators — not a forecast,
+                not a recommendation, and not guaranteed.
               </p>
+              {result.prediction && (
+                <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  {result.prediction.directionalAccuracy !== null && result.prediction.holdoutSize !== null
+                    ? `≈${Math.round(result.prediction.directionalAccuracy * 100)}% directional hit-rate on this symbol's last ${result.prediction.holdoutSize} sessions — for context on how weak this edge is, not a guarantee.`
+                    : "Not enough history yet for a meaningful accuracy readout — treat the projection as illustrative only."}
+                </p>
+              )}
             </div>
           )}
 

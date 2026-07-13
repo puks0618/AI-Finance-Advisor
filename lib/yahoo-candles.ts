@@ -29,9 +29,18 @@ interface YahooChartResponse {
   };
 }
 
+// Widens the requested range only as far as needed — the default 30-day chart/pattern/MA
+// callers stay on "3mo" (unchanged behavior), while the larger history lib/prediction.ts needs
+// for model training lands on "6mo" or "1y".
+function rangeForDays(days: number): string {
+  if (days <= 55) return "3mo";
+  if (days <= 130) return "6mo";
+  return "1y";
+}
+
 export async function getYahooDailyCandles(symbol: string, days = 30): Promise<Candle[]> {
   return cached(`yahoo-candles:${symbol}:${days}`, CACHE_TTL_MS, async () => {
-    const url = `${BASE_URL}/${encodeURIComponent(symbol)}?interval=1d&range=3mo`;
+    const url = `${BASE_URL}/${encodeURIComponent(symbol)}?interval=1d&range=${rangeForDays(days)}`;
     const res = await fetchWithRetry(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     if (!res.ok) return [];
 
