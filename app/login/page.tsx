@@ -23,8 +23,9 @@ async function syncProfileName(supabase: ReturnType<typeof createClient>, userId
     if (!profile?.full_name) {
       await supabase.from("profiles").upsert({ id: userId, full_name: metaName });
     }
-  } catch (err) {
-    console.error("syncProfileName error:", err);
+  } catch {
+    // Client-side only — never log Supabase error detail to the browser console. A failed name
+    // sync just means the display name fills in on a later visit instead.
   }
 }
 
@@ -38,8 +39,8 @@ async function isProfileComplete(supabase: ReturnType<typeof createClient>, user
       .eq("id", userId)
       .maybeSingle();
     return Boolean(profile?.full_name && profile?.address);
-  } catch (err) {
-    console.error("isProfileComplete error:", err);
+  } catch {
+    // Client-side only — never log Supabase error detail to the browser console.
     return true; // never trap a user on a Supabase hiccup
   }
 }
@@ -84,7 +85,14 @@ export default function LoginPage() {
         : await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      setError(error.message);
+      // Supabase's raw message here is just "Email not confirmed" — doesn't tell the user what
+      // to do about it, and the confirmation email can be slow to arrive (or lost) since this
+      // project uses Supabase's shared, rate-limited default sender rather than custom SMTP.
+      setError(
+        mode === "login" && error.message.toLowerCase().includes("email not confirmed")
+          ? "Please confirm your email before logging in — check your inbox (and spam folder) for the confirmation link from your signup. It can take a few minutes to arrive."
+          : error.message
+      );
       setLoading(false);
       return;
     }

@@ -58,10 +58,14 @@ body {
   background: rgba(60, 255, 122, 0.45);
 }
 
-/* Ambient glow blobs used behind hero / feature sections for depth. */
+/* Ambient glow blobs used behind hero / feature sections for depth. The blobs are intentionally
+   offset past the edges (see ::before/::after below) so the blur fades out before any hard edge —
+   without this overflow: hidden, that offset made the whole page horizontally scrollable on
+   narrow viewports for a purely decorative element. */
 .glow-field {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
 }
 .glow-field::before,
 .glow-field::after {
@@ -143,6 +147,33 @@ body {
 .btn-ghost:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Consistent neon keyboard-focus ring for every interactive element, since the default browser
+   outline reads inconsistently against this dark theme's rounded pill buttons and glass cards. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--neon-cyan);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respect the OS-level motion preference: the app's hover lifts, glow transitions, and the
+   chat "typing" pulse are all decorative, not load-bearing for understanding state. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn-neon:hover:not(:disabled) {
+    transform: none;
+  }
 }
 
 .input-neon {

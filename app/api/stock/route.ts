@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { ThinkingLevel } from "@google/genai";
 import { askGemini, GeminiUnavailableError } from "@/lib/gemini";
 import { getQuote, getCompanyNews, type Quote, type NewsItem } from "@/lib/finnhub";
-import { getDailyCandles } from "@/lib/yahoo-candles";
+import { getDailyCandles } from "@/lib/candles";
 import {
   detectPatterns,
   summarizePatternBias,
@@ -11,6 +11,7 @@ import {
   type DetectedPattern,
   type PatternBias,
 } from "@/lib/patterns";
+import { getPricePrediction, PREDICTION_FETCH_DAYS, type PricePrediction } from "@/lib/prediction";
 import { createClient } from "@/lib/supabase/server";
 import {
   validateTicker,
@@ -21,6 +22,11 @@ import {
   RESEARCH_NOT_ADVICE_RULE,
 } from "@/lib/guardrails";
 import { getSubscriptionStatus, isPro, countResearchRequestsToday, FREE_RESEARCH_DAILY_LIMIT } from "@/lib/subscription";
+
+// Vercel's default serverless timeout (10s on Hobby) is too tight for this route's chain:
+// parallel Finnhub+Yahoo fetches (each with 429 backoff) followed by a HIGH-thinking Gemini
+// call and a possible Claude fallback. 60s is the Hobby-tier ceiling.
+export const maxDuration = 60;
 
 // Phase 3 — a logged-in user's own stored risk tolerance always wins over whatever the
 // client sent; the client-supplied value only matters for a signed-out visitor. A Supabase
@@ -248,6 +254,21 @@ function parseDecisionTree(raw: unknown): DecisionTree | null {
   }
 }
 
+// The model's JSON response can arrive truncated (e.g. a fallback provider's token cap cutting
+// it off before the closing braces) — in that case the "brief" field, written first, is usually
+// still intact even though the overall object isn't valid JSON. This regex-recovers just that
+// field rather than ever falling back to showing the raw (possibly fence-wrapped, mid-object)
+// text directly, which would leak broken JSON straight into the UI.
+function tryRecoverBrief(raw: string): string | null {
+  const match = raw.match(/"brief"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (!match) return null;
+  try {
+    return JSON.parse(`"${match[1]}"`);
+  } catch {
+    return null;
+  }
+}
+
 function parseAnalysis(raw: string): StockAnalysis {
   try {
     const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
@@ -268,10 +289,13 @@ function parseAnalysis(raw: string): StockAnalysis {
       decisionTree: parseDecisionTree(parsed.decisionTree),
     };
   } catch {
-    // The model didn't return valid JSON — degrade to showing the raw text as the brief rather
-    // than failing the whole request; the structured extras just won't be present.
+    // The model didn't return valid JSON (often a truncated response) — recover just the brief
+    // field if it's intact, and never show raw/partial JSON text in its place.
+    const recoveredBrief = tryRecoverBrief(raw);
     return {
-      brief: finalizeField(raw),
+      brief: recoveredBrief
+        ? finalizeField(recoveredBrief)
+        : "We couldn't generate a clean research brief this time. Please try again.",
       sentiment: null,
       upsideScenario: null,
       downsideScenario: null,
@@ -333,12 +357,12 @@ export async function POST(request: Request) {
   const riskProfile = await resolveRiskProfile(body.riskProfile);
 
   let quote: Quote | null;
-  let candles: Candle[];
+  let candlesFull: Candle[];
   let news: NewsItem[];
   try {
-    [quote, candles, news] = await Promise.all([
+    [quote, candlesFull, news] = await Promise.all([
       getQuote(symbol),
-      getDailyCandles(symbol),
+      getDailyCandles(symbol, PREDICTION_FETCH_DAYS),
       getCompanyNews(symbol),
     ]);
   } catch (err) {
@@ -348,6 +372,10 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  // The chart/pattern-detection/moving-average UX is unchanged from before the wider
+  // PREDICTION_FETCH_DAYS fetch was introduced — only the model training below sees the full window.
+  const candles = candlesFull.slice(-30);
 
   // 6.12 — if nothing at all came back, say so plainly rather than asking the AI to analyze a void.
   if (!quote && candles.length === 0 && news.length === 0) {
@@ -361,6 +389,17 @@ export async function POST(request: Request) {
   const patternBias: PatternBias = summarizePatternBias(patterns);
   const movingAverage = computeMovingAverage(candles, 10);
   const prompt = buildPrompt(symbol, riskProfile, quote, candles, patterns, news);
+
+  // Deterministic, code-computed projection — same "AI explains, code computes" split as pattern
+  // detection above. Isolated in its own try/catch so an edge case here can never take down the
+  // rest of the route.
+  let prediction: PricePrediction | null;
+  try {
+    prediction = getPricePrediction(candlesFull);
+  } catch (err) {
+    console.error("stock route prediction error:", err);
+    prediction = null;
+  }
 
   try {
     const raw = await askGemini(prompt, STOCK_SYSTEM_INSTRUCTION, ThinkingLevel.HIGH, true);
@@ -380,6 +419,7 @@ export async function POST(request: Request) {
       patterns,
       patternBias,
       movingAverage,
+      prediction,
       news,
       brief: analysis.brief,
       sentiment: analysis.sentiment,

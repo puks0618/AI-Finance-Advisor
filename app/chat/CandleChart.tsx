@@ -8,6 +8,7 @@ import {
   LineSeries,
   ColorType,
   CrosshairMode,
+  LineStyle,
   type IChartApi,
   type SeriesMarker,
   type Time,
@@ -34,6 +35,26 @@ interface MovingAveragePoint {
   value: number;
 }
 
+interface PredictedPoint {
+  date: string;
+  predictedClose: number;
+  low: number;
+  high: number;
+}
+
+interface PricePrediction {
+  points: PredictedPoint[];
+  directionalAccuracy: number | null;
+  holdoutSize: number | null;
+  methodology: string;
+}
+
+// Distinct from the bullish/bearish/neutral palette used elsewhere on this chart — reuses the
+// app's warning-yellow so a projection reads visually as "uncertain," same semantic as the
+// disclaimer's ⚠ icon.
+const PROJECTION_COLOR = "#ffd84d";
+const PROJECTION_BAND_COLOR = "rgba(255, 216, 77, 0.35)";
+
 const SIGNAL_MARKER_COLOR: Record<DetectedPattern["signal"], string> = {
   bullish: "#3cff7a",
   bearish: "#ff4d6d",
@@ -44,10 +65,12 @@ export default function CandleChart({
   candles,
   patterns,
   movingAverage,
+  prediction,
 }: {
   candles: Candle[];
   patterns: DetectedPattern[];
   movingAverage: MovingAveragePoint[];
+  prediction?: PricePrediction | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -110,13 +133,51 @@ export default function CandleChart({
       createSeriesMarkers(candleSeries, markers);
     }
 
+    if (prediction && prediction.points.length > 0 && candles.length > 0) {
+      // All three series share the last real candle as their first point so they visually
+      // converge at "today" and fan out from there — a series' own ascending-time check is
+      // independent of what other series already contain, so reusing that timestamp is fine.
+      const anchor = candles[candles.length - 1];
+      const bandSeriesOptions = {
+        color: PROJECTION_BAND_COLOR,
+        lineWidth: 1 as const,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      };
+
+      const upperSeries = chart.addSeries(LineSeries, bandSeriesOptions);
+      upperSeries.setData([
+        { time: anchor.date as Time, value: anchor.close },
+        ...prediction.points.map((p) => ({ time: p.date as Time, value: p.high })),
+      ]);
+
+      const lowerSeries = chart.addSeries(LineSeries, bandSeriesOptions);
+      lowerSeries.setData([
+        { time: anchor.date as Time, value: anchor.close },
+        ...prediction.points.map((p) => ({ time: p.date as Time, value: p.low })),
+      ]);
+
+      const centerSeries = chart.addSeries(LineSeries, {
+        color: PROJECTION_COLOR,
+        lineWidth: 2,
+        lineStyle: LineStyle.Dashed,
+        priceLineVisible: false,
+        lastValueVisible: false,
+      });
+      centerSeries.setData([
+        { time: anchor.date as Time, value: anchor.close },
+        ...prediction.points.map((p) => ({ time: p.date as Time, value: p.predictedClose })),
+      ]);
+    }
+
     chart.timeScale().fitContent();
 
     return () => {
       chart.remove();
       chartRef.current = null;
     };
-  }, [candles, patterns, movingAverage]);
+  }, [candles, patterns, movingAverage, prediction]);
 
   return <div ref={containerRef} className="h-[320px] w-full" />;
 }

@@ -10,13 +10,21 @@ import {
   GuardrailError,
   RESEARCH_NOT_ADVICE_RULE,
   VULNERABLE_USER_CARE_RULE,
+  ON_TOPIC_ONLY_RULE,
 } from "@/lib/guardrails";
+
+// Vercel's default serverless timeout (10s on Hobby) can be too tight once a Gemini reply,
+// the follow-up extractProfile call, and a possible Claude fallback stack up. 60s is the
+// Hobby-tier ceiling.
+export const maxDuration = 60;
 
 const ADVISOR_SYSTEM_INSTRUCTION = `
 You are a friendly, consultative personal finance advisor, like a real advisor's first meeting.
 Before giving budgeting, saving, or investing advice, ask about the user's income, expenses, debt,
 goals, and risk tolerance. Ask one genuinely relevant follow-up question at a time rather than
 dumping generic advice. Speak in plain English, never guarantee outcomes, and keep responses concise.
+
+${ON_TOPIC_ONLY_RULE}
 
 ${RESEARCH_NOT_ADVICE_RULE}
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import NavAuthLink from "./NavAuthLink";
 
 const FEATURES = [
   {
@@ -35,7 +36,7 @@ const STEPS = [
   {
     n: "03",
     title: "Go unlimited on Pro",
-    body: "$9.99/mo unlocks unlimited stock research and future alert calls.",
+    body: "$9.99/mo unlocks unlimited stock research. Calling the AI Advisor is free either way.",
   },
 ];
 
@@ -52,9 +53,7 @@ export default function Home() {
           <Link href="/pricing" className="hover:text-[var(--text-primary)]">
             Pricing
           </Link>
-          <Link href="/login" className="btn-ghost px-4 py-2 font-medium hover:text-[var(--text-primary)]">
-            Log in
-          </Link>
+          <NavAuthLink />
         </div>
       </nav>
 
@@ -126,8 +125,8 @@ export default function Home() {
         <section className="glass-card flex flex-col items-center gap-4 p-10 text-center">
           <h2 className="text-2xl font-bold">Free to start, $9.99/mo for unlimited research</h2>
           <p className="max-w-md text-sm text-[var(--text-secondary)]">
-            Free accounts get unlimited chat and 5 stock research requests a day. Pro removes the
-            cap and will unlock proactive alert calls.
+            Free accounts get unlimited chat, 5 stock research requests a day, and can call the AI
+            Advisor. Pro just removes the research cap.
           </p>
           <Link href="/pricing" className="btn-neon flex h-11 items-center px-7 text-sm">
             Compare plans

@@ -7,7 +7,9 @@ const CACHE_TTL_MS = 60_000;
 // Finnhub's free tier no longer includes OHLC candles (confirmed 403 on /stock/candle as of
 // 2026-07, regardless of symbol/params). This unofficial Yahoo Finance endpoint is the free
 // substitute — no key required, verified working, but undocumented and could change without
-// notice. If it breaks, this is the one file to replace.
+// notice. lib/candles.ts is the primary→fallback orchestrator (this provider first, Stooq
+// second) that callers should import from; this file is not meant to be imported directly
+// outside of lib/candles.ts.
 const BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart";
 
 interface YahooChartResponse {
@@ -27,9 +29,18 @@ interface YahooChartResponse {
   };
 }
 
-export async function getDailyCandles(symbol: string, days = 30): Promise<Candle[]> {
-  return cached(`candles:${symbol}:${days}`, CACHE_TTL_MS, async () => {
-    const url = `${BASE_URL}/${encodeURIComponent(symbol)}?interval=1d&range=3mo`;
+// Widens the requested range only as far as needed — the default 30-day chart/pattern/MA
+// callers stay on "3mo" (unchanged behavior), while the larger history lib/prediction.ts needs
+// for model training lands on "6mo" or "1y".
+function rangeForDays(days: number): string {
+  if (days <= 55) return "3mo";
+  if (days <= 130) return "6mo";
+  return "1y";
+}
+
+export async function getYahooDailyCandles(symbol: string, days = 30): Promise<Candle[]> {
+  return cached(`yahoo-candles:${symbol}:${days}`, CACHE_TTL_MS, async () => {
+    const url = `${BASE_URL}/${encodeURIComponent(symbol)}?interval=1d&range=${rangeForDays(days)}`;
     const res = await fetchWithRetry(url, { headers: { "User-Agent": "Mozilla/5.0" } });
     if (!res.ok) return [];
 
