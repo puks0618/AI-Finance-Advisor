@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { placeAdvisorCall, VapiError } from "@/lib/vapi";
+import { isDomesticNumber } from "@/lib/phone";
 
 // Free for every signed-in user (no Pro gate) — a real phone call still costs real money
 // regardless of who triggers it, so this daily cap per account is the only cost safety net left.
@@ -30,6 +31,19 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Verify a phone number on your profile before calling the AI Advisor." },
       { status: 400 }
+    );
+  }
+
+  // The Vapi number on this account is free-tier and can only dial US/Canada numbers — checked
+  // here, before spending an API call/creating a doomed call_attempts row, so the caller gets an
+  // honest reason instead of a generic failure (Vapi's own error surfaces after the fact).
+  if (!isDomesticNumber(profile.phone_number)) {
+    return NextResponse.json(
+      {
+        error: "AI Advisor calls aren't available for phone numbers outside the US/Canada yet — we're working on it.",
+        code: "unsupported_region",
+      },
+      { status: 422 }
     );
   }
 

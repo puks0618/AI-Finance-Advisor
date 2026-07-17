@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { isDomesticNumber } from "@/lib/phone";
 
 interface ProfileForm {
   full_name: string;
@@ -98,6 +99,12 @@ function PhoneVerification({
       )}
 
       {error && <p className="text-xs text-neon-pink">{error}</p>}
+      {phoneNumber.trim() && !isDomesticNumber(phoneNumber.trim()) && (
+        <p className="text-xs text-neon-yellow">
+          Heads up: AI Advisor calls only work for US/Canada numbers right now — international
+          support isn&apos;t available yet. You can still save this number for later.
+        </p>
+      )}
       <p className="text-xs text-[var(--text-muted)]">
         This is the number the AI Advisor will call — double check it&apos;s yours.
       </p>

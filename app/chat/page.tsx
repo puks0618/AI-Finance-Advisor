@@ -256,6 +256,8 @@ function CallAdvisorButton({
       if (!res.ok) {
         if (res.status === 401) {
           setResult({ ok: false, text: "Log in to call the AI Advisor.", href: "/login", hrefLabel: "Log in" });
+        } else if (data.code === "unsupported_region") {
+          setResult({ ok: false, text: data.error });
         } else if (res.status === 400 && String(data.error ?? "").toLowerCase().includes("phone")) {
           setResult({ ok: false, text: data.error, href: "/profile", hrefLabel: "Verify a number" });
         } else {
