@@ -28,93 +28,63 @@ const EMPTY_FORM: ProfileForm = {
   preference: "",
 };
 
+const E164_PATTERN = /^\+[1-9]\d{7,14}$/;
+
+// Call-based OTP verification was removed here — Vapi's free phone number can't dial
+// international numbers, which made verification fail for every non-domestic user. This just
+// saves the number directly, same trust level as any other profile field (full name, address,
+// etc.), and the same client-side RLS-backed upsert pattern the rest of this page already uses.
 function PhoneVerification({
+  userId,
   initialPhoneNumber,
-  initialVerified,
 }: {
+  userId: string;
   initialPhoneNumber: string | null;
-  initialVerified: boolean;
 }) {
   const [phoneNumber, setPhoneNumber] = useState(initialPhoneNumber ?? "");
-  const [verified, setVerified] = useState(initialVerified);
-  const [step, setStep] = useState<"idle" | "code-sent">("idle");
-  const [code, setCode] = useState("");
+  const [editing, setEditing] = useState(initialPhoneNumber === null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
 
-  async function handleSendCode(event: FormEvent) {
+  async function handleSave(event: FormEvent) {
     event.preventDefault();
+    const trimmed = phoneNumber.trim();
+    if (!E164_PATTERN.test(trimmed)) {
+      setError("Enter your number in international format, e.g. +15551234567.");
+      return;
+    }
     setLoading(true);
     setError(null);
-    setInfo(null);
-    try {
-      const res = await fetch("/api/phone/send-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: phoneNumber.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Something went wrong. Please try again.");
-      setStep("code-sent");
-      setInfo("Calling you now — enter the code you hear.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
-  async function handleVerifyCode(event: FormEvent) {
-    event.preventDefault();
-    setLoading(true);
-    setError(null);
-    setInfo(null);
-    try {
-      const res = await fetch("/api/phone/verify-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Something went wrong. Please try again.");
-      setVerified(true);
-      setStep("idle");
-      setCode("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
+    const supabase = createClient();
+    const { error: upsertError } = await supabase.from("profiles").upsert({
+      id: userId,
+      phone_number: trimmed,
+      phone_verified: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    setLoading(false);
+    if (upsertError) {
+      setError(upsertError.message);
+      return;
     }
+    setEditing(false);
   }
 
   return (
     <div className="glass-card flex flex-col gap-3 p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-[var(--text-secondary)]">Phone (for AI calls)</h2>
-        {verified && (
-          <span className="rounded-full border border-[var(--border-strong)] px-3 py-1 text-xs font-semibold text-neon-green">
-            Verified
-          </span>
-        )}
-      </div>
+      <h2 className="text-sm font-medium text-[var(--text-secondary)]">Phone (for AI calls)</h2>
 
-      {verified ? (
+      {!editing ? (
         <div className="flex items-center justify-between">
           <p className="text-sm text-[var(--text-primary)]">{phoneNumber}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setVerified(false);
-              setStep("idle");
-            }}
-            className="text-xs text-neon-pink hover:underline"
-          >
+          <button type="button" onClick={() => setEditing(true)} className="text-xs text-neon-pink hover:underline">
             Change number
           </button>
         </div>
-      ) : step === "idle" ? (
-        <form onSubmit={handleSendCode} className="flex gap-2">
+      ) : (
+        <form onSubmit={handleSave} className="flex gap-2">
           <input
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value)}
@@ -122,28 +92,14 @@ function PhoneVerification({
             className="input-neon flex-1 px-4 py-3 text-sm"
           />
           <button type="submit" disabled={loading || !phoneNumber.trim()} className="btn-neon px-6 py-3 text-sm">
-            {loading ? "Calling…" : "Send code"}
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={handleVerifyCode} className="flex gap-2">
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="6-digit code"
-            maxLength={6}
-            className="input-neon flex-1 px-4 py-3 text-sm"
-          />
-          <button type="submit" disabled={loading || !code.trim()} className="btn-neon px-6 py-3 text-sm">
-            {loading ? "Verifying…" : "Verify"}
+            {loading ? "Saving…" : "Save"}
           </button>
         </form>
       )}
 
-      {info && <p className="text-xs text-neon-cyan">{info}</p>}
       {error && <p className="text-xs text-neon-pink">{error}</p>}
       <p className="text-xs text-[var(--text-muted)]">
-        We call this number to confirm it&apos;s really yours before the AI Advisor can ever call it.
+        This is the number the AI Advisor will call — double check it&apos;s yours.
       </p>
     </div>
   );
@@ -156,7 +112,6 @@ export default function ProfilePage() {
   const [form, setForm] = useState<ProfileForm>(EMPTY_FORM);
   const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
-  const [phoneVerified, setPhoneVerified] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -186,7 +141,6 @@ export default function ProfilePage() {
         preference: profile?.preference ?? "",
       });
       setPhoneNumber(profile?.phone_number ?? null);
-      setPhoneVerified(profile?.phone_verified ?? false);
       setSubscriptionStatus(subRes.status);
       setChecked(true);
     });
@@ -269,7 +223,7 @@ export default function ProfilePage() {
         </div>
 
         <div className="mb-6">
-          <PhoneVerification initialPhoneNumber={phoneNumber} initialVerified={phoneVerified} />
+          <PhoneVerification userId={user?.id ?? ""} initialPhoneNumber={phoneNumber} />
         </div>
 
         <form onSubmit={handleSubmit} className="glass-card flex flex-col gap-5 p-8">

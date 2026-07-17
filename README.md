@@ -20,8 +20,10 @@ Everything is framed as research and education, never as a "buy" or "sell" instr
 - **Supabase** — Postgres + auth. Every table has Row-Level Security scoped to `auth.uid()`.
 - **Stripe** (test mode) — subscription checkout and webhook-driven feature gating.
 - **Web Speech API** — in-browser voice chat (progressive enhancement, no server cost).
-- **Vapi** — outbound/inbound AI phone calls: phone-number verification and the proactive advisor
-  call, both server-gated and rate-limited.
+- **Vapi** — outbound AI phone calls: the proactive advisor call, server-gated behind a signed-in
+  user with a saved phone number. (Call-based OTP verification was removed — Vapi's free phone
+  number can't dial international numbers, which made it fail for every non-domestic user; see
+  `lib/vapi.ts`.)
 - **Vercel Cron** — periodic watchlist checks (`vercel.json`).
 
 ## Getting started
